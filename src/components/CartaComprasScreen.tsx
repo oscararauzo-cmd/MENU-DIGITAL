@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Cocktail, Ingredient, BusinessProfile, WasteRecord } from '../types/bar';
 import { DEFAULT_IMAGE_GALLERY } from '../data/initialData';
@@ -9,6 +9,7 @@ import {
   Plus,
   Trash2,
   Download,
+  Upload,
   Check,
   Layers,
   Boxes,
@@ -371,6 +372,135 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
     setTimeout(() => setStatusMessage(null), 3000);
   };
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+
+        // Buscar hoja de inventario o tomar la primera
+        const sheetName =
+          wb.SheetNames.find(
+            n =>
+              n.toLowerCase().includes('inventario') ||
+              n.toLowerCase().includes('insumo') ||
+              n.toLowerCase().includes('bodega')
+          ) || wb.SheetNames[0];
+
+        const ws = wb.Sheets[sheetName];
+        const data: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+        if (!data || data.length < 2) {
+          setStatusMessage('⚠️ El archivo Excel no contiene filas de datos.');
+          setTimeout(() => setStatusMessage(null), 3500);
+          return;
+        }
+
+        // Buscar encabezados
+        const headers = data[0].map((h: any) => String(h || '').toLowerCase().trim());
+        const nameIdx = headers.findIndex(h => h.includes('insumo') || h.includes('nombre') || h.includes('producto'));
+        const catIdx = headers.findIndex(h => h.includes('categor'));
+        const unitIdx = headers.findIndex(h => h.includes('present') || h.includes('unidad'));
+        const costIdx = headers.findIndex(h => h.includes('costo') || h.includes('precio'));
+        const volumeIdx = headers.findIndex(h => h.includes('rinde') || h.includes('ml') || h.includes('volumen'));
+        const stockIdx = headers.findIndex(h => h.includes('stock actual') || h.includes('stock') || h.includes('cantidad'));
+        const minIdx = headers.findIndex(h => h.includes('mínimo') || h.includes('min') || h.includes('alerta'));
+
+        const parsedIngredients: Ingredient[] = [];
+
+        for (let i = 1; i < data.length; i++) {
+          const row = data[i];
+          if (!row || row.length === 0) continue;
+          const name = nameIdx !== -1 ? String(row[nameIdx] || '').trim() : String(row[0] || '').trim();
+          if (!name || name.toLowerCase().includes('total')) continue;
+
+          const rawCat = catIdx !== -1 ? String(row[catIdx] || '').toLowerCase() : 'licor';
+          const category: Ingredient['category'] = rawCat.includes('mezclador')
+            ? 'mezclador'
+            : rawCat.includes('fruta') || rawCat.includes('jarabe')
+            ? 'fruta_jarabe'
+            : rawCat.includes('comida')
+            ? 'comida_insumo'
+            : rawCat.includes('guarnicion')
+            ? 'guarnicion'
+            : rawCat.includes('otro')
+            ? 'otro'
+            : 'licor';
+
+          const rawUnit = unitIdx !== -1 ? String(row[unitIdx] || '').toLowerCase() : 'botella_750ml';
+          const unit: Ingredient['unit'] = rawUnit.includes('1000') || rawUnit.includes('1l')
+            ? 'botella_1000ml'
+            : rawUnit.includes('litro')
+            ? 'litro'
+            : rawUnit.includes('kg')
+            ? 'kg'
+            : rawUnit.includes('lata')
+            ? 'lata_355ml'
+            : rawUnit.includes('unidad')
+            ? 'unidad'
+            : 'botella_750ml';
+
+          const packageCost =
+            costIdx !== -1
+              ? parseFloat(String(row[costIdx]).replace(/[^0-9.]/g, '')) || 0
+              : parseFloat(String(row[3])) || 0;
+
+          const volumePerUnitMl =
+            volumeIdx !== -1 ? parseFloat(String(row[volumeIdx])) || 750 : 750;
+
+          const currentStockUnits =
+            stockIdx !== -1 ? parseFloat(String(row[stockIdx])) || 0 : parseFloat(String(row[5])) || 0;
+
+          const minAlertUnits =
+            minIdx !== -1 ? parseFloat(String(row[minIdx])) || 2 : 2;
+
+          const existing = ingredients.find(ing => ing.name.toLowerCase() === name.toLowerCase());
+          const id = existing?.id || `ing-${Date.now()}-${i}`;
+
+          parsedIngredients.push({
+            id,
+            name,
+            category,
+            unit,
+            packageCost,
+            volumePerUnitMl,
+            initialStockUnits: currentStockUnits,
+            currentStockUnits,
+            minAlertUnits,
+          });
+        }
+
+        if (parsedIngredients.length > 0) {
+          setIngredients(prev => {
+            const map = new Map(prev.map(item => [item.name.toLowerCase(), item]));
+            for (const item of parsedIngredients) {
+              map.set(item.name.toLowerCase(), item);
+            }
+            return Array.from(map.values());
+          });
+          setStatusMessage(`✓ Se importaron ${parsedIngredients.length} insumos exitosamente.`);
+          setTimeout(() => setStatusMessage(null), 4000);
+        } else {
+          setStatusMessage('⚠️ No se encontraron insumos válidos en el archivo.');
+          setTimeout(() => setStatusMessage(null), 3000);
+        }
+      } catch (err: any) {
+        console.error(err);
+        setStatusMessage('Error al procesar el archivo Excel.');
+        setTimeout(() => setStatusMessage(null), 3000);
+      }
+    };
+
+    reader.readAsBinaryString(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   return (
     <div className="flex-1 min-h-0 h-full flex flex-col bg-[#faf8f5] text-stone-900 overflow-hidden font-sans">
       {statusMessage && (
@@ -420,6 +550,24 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
           >
             <HelpCircle className="w-4 h-4 text-amber-600" />
             <span className="hidden sm:inline">Tutorial & Ayuda</span>
+          </button>
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImportExcel}
+            accept=".xlsx, .xls, .csv"
+            className="hidden"
+          />
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-700/20 transition active:scale-95 cursor-pointer"
+            title="Subir archivo Excel con insumos o compras para cargarlos automáticamente"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Subir Excel (.xlsx)</span>
           </button>
 
           <button
