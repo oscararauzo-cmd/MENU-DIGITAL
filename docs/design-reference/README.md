@@ -63,3 +63,20 @@ Antes de modificar una pantalla, revisar estas referencias y conservar sus color
 - Guardar el contexto y los cambios de inventario de eventos pendientes de sincronización. Los pedidos pendientes conservan el contexto del evento al reintentarse.
 - La creación de pedidos sigue limpia: esta administración se hace en Inicio y Resumen, nunca en el catálogo.
 - `inicio-operaciones.png` es una referencia con datos ficticios; prueba aislada en `/tests/fixtures/operations.html`.
+
+## Eliminación de insumos
+
+- La confirmación permanece dentro de la fila. Mostrar las recetas afectadas antes de confirmar.
+- Permitir eliminar insumos usados en recetas: quitar su referencia y pausar solo los productos afectados hasta que se revisen. Mantener los pedidos anteriores y las copias de inventario/recetas de los eventos.
+- Los errores de conexión o permisos aparecen en la fila y conservan el insumo. Si falla borrar después de actualizar recetas, intentar restaurarlas.
+- Leer primero el catálogo remoto antes de activar las escrituras automáticas al iniciar. Una lista remota vacía no debe reponer automáticamente los insumos eliminados.
+
+## Carta & Compras dentro de eventos
+
+- La pestaña siempre abre CartaComprasScreen. No redirigirla al resumen del evento ni reemplazarla por un formulario reducido.
+- Conservar carta/precios/recetas, crear insumos, agregar cantidades, edición rápida, eliminar, importar y exportar Excel.
+- El alcance del evento se indica con una línea discreta arriba. La pantalla de compras del evento abre por defecto en Insumos.
+- El selector permite agregar insumos del catálogo al evento con cantidad inicial cero, sin copiar el stock del bar.
+- Los cambios se guardan sin salir de Carta & Compras. Carta e inventario del evento permanecen separados del bar.
+- Importar un insumo existente conserva su ID para mantener los vínculos con recetas. Las filas nuevas que coinciden con el catálogo del bar usan su identidad, conservando cantidades independientes.
+- `carta-compras-evento.png` muestra el aumento manual y las herramientas Excel, con datos de prueba.

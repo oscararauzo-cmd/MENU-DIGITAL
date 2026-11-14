@@ -1,3 +1,4 @@
+import { updateEventInventory } from './utils/ingredientImport';
 import { OperationsDashboard, OperationOverview } from './components/OperationsDashboard';
 import { eventKind, eventInventory, consignmentSettlement, limaDate } from './utils/operationContext';
 import React, { useState, useEffect, useRef } from 'react';
@@ -39,6 +40,7 @@ import { BarGuideModal } from './components/BarGuideModal';
 import { PinLockModal } from './components/PinLockModal';
 
 export default function App() {
+  const [catalogHydrated, setCatalogHydrated] = useState(!isSupabaseConfigured());
   const [orderSyncError, setOrderSyncError] = useState('');
   const eventSaves = useRef<Record<string, BarEvent>>((() => {
     try { return JSON.parse(localStorage.getItem('altura_event_outbox_v1') || '{}') || {}; } catch { return {}; }
@@ -215,17 +217,14 @@ export default function App() {
           syncBusinessProfileToSupabase(businessProfile).catch(console.error);
         }
 
-        if (remote.ingredients && remote.ingredients.length > 0) {
-          setIngredients(remote.ingredients);
-        } else {
+        if (remote.isNewDatabase) {
           syncIngredientsToSupabase(ingredients).catch(console.error);
-        }
-
-        if (remote.cocktails && remote.cocktails.length > 0) {
-          setCocktails(remote.cocktails);
-        } else {
           syncCocktailsToSupabase(cocktails).catch(console.error);
+        } else {
+          setIngredients(remote.ingredients || []);
+          setCocktails(remote.cocktails || []);
         }
+        setCatalogHydrated(true);
 
         if (remote.events && remote.events.length > 0) {
           knownRemoteOrders.current = new Set(remote.events.flatMap(e => e.orders.map(o => o.id)));
@@ -294,10 +293,10 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    if (isSupabaseConfigured()) {
+    if (catalogHydrated && isSupabaseConfigured()) {
       syncBusinessProfileToSupabase(businessProfile).catch(console.error);
     }
-  }, [businessProfile]);
+  }, [businessProfile, catalogHydrated]);
 
   useEffect(() => {
     try {
@@ -321,10 +320,10 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    if (isSupabaseConfigured()) {
+    if (catalogHydrated && isSupabaseConfigured()) {
       syncCocktailsToSupabase(cocktails).catch(console.error);
     }
-  }, [cocktails]);
+  }, [cocktails, catalogHydrated]);
 
   useEffect(() => {
     try {
@@ -332,26 +331,35 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    if (isSupabaseConfigured()) {
+    if (catalogHydrated && isSupabaseConfigured()) {
       syncIngredientsToSupabase(ingredients).catch(console.error);
     }
-  }, [ingredients]);
+  }, [ingredients, catalogHydrated]);
 
   // Find currently active event
   const activeEvent = events.find(ev => ev.id === activeEventId) || events[0] || INITIAL_EVENTS[0];
   const isSpecialEvent = eventKind(activeEvent) === 'evento';
   const activeCocktails = isSpecialEvent ? (activeEvent.recipeSnapshot || cocktails) : cocktails;
   const activeIngredients = isSpecialEvent ? eventInventory(activeEvent, cocktails) : ingredients;
+  const activeEventRef = useRef(activeEvent);
+  activeEventRef.current = activeEvent;
+  const updateActiveEventFields = (patch: Partial<BarEvent>) => {
+    const next = {...activeEventRef.current,...patch};
+    activeEventRef.current = next;
+    setEvents(previous=>previous.map(event=>event.id===next.id?{...event,...patch}:event));
+    queueEventSave(next);
+  };
   const setActiveIngredients: React.Dispatch<React.SetStateAction<Ingredient[]>> = update => {
     if (!isSpecialEvent) { setIngredients(update); return; }
-    const next = typeof update === 'function' ? update(activeIngredients) : update;
-    const inventory = next.map(ingredient => {
-      const prior = activeEvent.inventory?.find(l=>l.ingredient.id===ingredient.id);
-      const before = activeIngredients.find(i=>i.id===ingredient.id);
-      const receivedUnits = prior ? Math.max(0, prior.receivedUnits + ingredient.currentStockUnits - (before?.currentStockUnits || 0)) : ingredient.currentStockUnits;
-      return { ingredient: {...ingredient}, receivedUnits, openedUnits: prior?.openedUnits || 0 };
-    });
-    handleSaveEvent({...activeEvent, inventory});
+    const event = activeEventRef.current;
+    const current = eventInventory(event, cocktails);
+    const next = typeof update === 'function' ? update(current) : update;
+    updateActiveEventFields({inventory:updateEventInventory(event,current,next,ingredients)});
+  };
+  const setActiveCocktails: React.Dispatch<React.SetStateAction<Cocktail[]>> = update => {
+    if (!isSpecialEvent) { setCocktails(update); return; }
+    const current = activeEventRef.current.recipeSnapshot || cocktails;
+    updateActiveEventFields({recipeSnapshot:typeof update === 'function' ? update(current) : update});
   };
   const openOperation = (event: BarEvent) => {
     setActiveEventId(event.id);
@@ -529,7 +537,7 @@ export default function App() {
 
   // Save edited cocktail
   const handleSaveCocktail = (updated: Cocktail) => {
-    setCocktails(prev => prev.map(c => (c.id === updated.id ? updated : c)));
+    setActiveCocktails(prev => prev.map(c => (c.id === updated.id ? updated : c)));
   };
 
   const handleOpenEditCocktail = (cocktail: Cocktail) => {
@@ -613,11 +621,15 @@ export default function App() {
       {/* Main View Area: 100% Focused, Zero Visual Clutter */}
       <main className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
         {currentView === 'inicio' ? <OperationsDashboard events={events} onOpen={openOperation} onCreate={type=>{setNewProjectType(type);setIsNewProjectModalOpen(true);}} onMonth={()=>changeMode('mes')} />
-        : currentView === 'resumen' || (currentView === 'pdv' && activeEvent.status === 'closed') || (currentView === 'carta_compras' && isSpecialEvent) ? <OperationOverview key={activeEvent.id} event={activeEvent} cocktails={activeCocktails} catalog={ingredients} onOrders={()=>setCurrentView('pdv')} onMetrics={()=>{setMetricsPeriod('evento');setCurrentView('ventas');}} onSave={handleSaveEvent} onClose={()=>handleCloseEvent(activeEvent.id)} />
+        : currentView === 'resumen' || (currentView === 'pdv' && activeEvent.status === 'closed') ? <OperationOverview key={activeEvent.id} event={activeEvent} cocktails={activeCocktails} catalog={ingredients} onOrders={()=>setCurrentView('pdv')} onMetrics={()=>{setMetricsPeriod('evento');setCurrentView('ventas');}} onSave={handleSaveEvent} onClose={()=>handleCloseEvent(activeEvent.id)} />
         : currentView === 'carta_compras' ? (
           <CartaComprasScreen
+            key={activeEvent.id}
+            inventoryScope={isSpecialEvent ? 'evento' : 'bar'}
+            ingredientCatalog={ingredients}
+            contextName={isSpecialEvent ? activeEvent.name : undefined}
             cocktails={activeCocktails}
-            setCocktails={setCocktails}
+            setCocktails={setActiveCocktails}
             ingredients={activeIngredients}
             setIngredients={setActiveIngredients}
             businessProfile={businessProfile}
@@ -660,7 +672,7 @@ export default function App() {
         isOpen={isRecipeMatrixOpen}
         onClose={() => setIsRecipeMatrixOpen(false)}
         cocktails={activeCocktails}
-        setCocktails={setCocktails}
+        setCocktails={setActiveCocktails}
         ingredients={activeIngredients}
         setIngredients={setActiveIngredients}
         businessProfile={businessProfile}
@@ -682,7 +694,7 @@ export default function App() {
         isOpen={isMenuExcelOpen}
         onClose={() => setIsMenuExcelOpen(false)}
         cocktails={activeCocktails}
-        setCocktails={setCocktails}
+        setCocktails={setActiveCocktails}
         businessProfile={businessProfile}
       />
 
@@ -715,7 +727,7 @@ export default function App() {
         isOpen={isMenuEditorOpen}
         onClose={() => setIsMenuEditorOpen(false)}
         cocktails={activeCocktails}
-        setCocktails={setCocktails}
+        setCocktails={setActiveCocktails}
         ingredients={activeIngredients}
         onOpenEditCocktail={handleOpenEditCocktail}
       />
@@ -741,7 +753,7 @@ export default function App() {
         }}
         ingredients={activeIngredients}
         cocktails={activeCocktails}
-        setCocktails={setCocktails}
+        setCocktails={setActiveCocktails}
         existingEvent={wizardTargetEvent}
         onSaveEvent={handleSaveEvent}
       />
@@ -753,7 +765,7 @@ export default function App() {
         businessProfile={businessProfile}
         onSaveProfile={handleSaveBusinessProfile}
         cocktails={activeCocktails}
-        setCocktails={setCocktails}
+        setCocktails={setActiveCocktails}
         onOpenEventWizard={() => {
           setWizardTargetEvent(activeEvent);
           setIsEventWizardOpen(true);

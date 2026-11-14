@@ -37,6 +37,7 @@ export interface LoadedSupabaseState {
   businessProfile?: BusinessProfile;
   cocktails?: Cocktail[];
   ingredients?: Ingredient[];
+  isNewDatabase?: boolean;
   events?: BarEvent[];
 }
 
@@ -54,8 +55,8 @@ export async function fetchInitialStateFromSupabase(): Promise<LoadedSupabaseSta
       supabase.from('wastes').select('*'),
     ]);
 
-    if (eventsRes.error || ordersRes.error || itemsRes.error) return null;
-    const result: LoadedSupabaseState = {};
+    if (profileRes.error || ingRes.error || cockRes.error || eventsRes.error || ordersRes.error || itemsRes.error) return null;
+    const result: LoadedSupabaseState = { ingredients: [], cocktails: [], events: [], isNewDatabase: !profileRes.data?.length && !ingRes.data?.length && !cockRes.data?.length && !eventsRes.data?.length };
 
     if (profileRes.data && profileRes.data.length > 0) {
       const p = profileRes.data[0];
@@ -379,7 +380,10 @@ export async function syncBusinessProfileToSupabase(profile: BusinessProfile): P
 export async function deleteIngredientFromSupabase(id: string): Promise<{ success: boolean; error?: string }> {
   if (!supabase) return { success: false, error: 'Sin conexión configurada' };
   const { error } = await supabase.from('ingredients').delete().eq('id', id);
-  return error ? { success: false, error: error.message } : { success: true };
+  if (error) return { success: false, error: error.code === '23503' ? 'El insumo tiene registros vinculados en la base de datos. No se eliminó; revisa esos vínculos primero.' : 'No se pudo eliminar en la base de datos. Revisa la conexión y los permisos e intenta nuevamente.' };
+  const verification = await supabase.from('ingredients').select('id').eq('id', id);
+  if (verification.error || verification.data?.length) return { success: false, error: 'La base de datos no confirmó la eliminación. El insumo se conserva; revisa los permisos o vuelve a intentar.' };
+  return { success: true };
 }
 
 export async function deleteOrderFromSupabase(id: string): Promise<{ success: boolean; error?: string }> {

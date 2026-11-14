@@ -1,3 +1,4 @@
+import { mergeImportedIngredients } from '../utils/ingredientImport';
 import React, { useState, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Cocktail, Ingredient, BusinessProfile, WasteRecord } from '../types/bar';
@@ -21,10 +22,14 @@ import {
   Image as ImageIcon,
   HelpCircle,
 } from 'lucide-react';
-import { deleteIngredientFromSupabase, isSupabaseConfigured } from '../lib/supabase';
+import { deleteIngredientFromSupabase, isSupabaseConfigured, syncCocktailsToSupabase } from '../lib/supabase';
+import { planIngredientDeletion } from '../utils/ingredientDeletion';
 import { HelpTutorialModal } from './HelpTutorialModal';
 
 interface CartaComprasScreenProps {
+  inventoryScope?: 'bar' | 'evento';
+  contextName?: string;
+  ingredientCatalog?: Ingredient[];
   cocktails: Cocktail[];
   setCocktails: React.Dispatch<React.SetStateAction<Cocktail[]>>;
   ingredients: Ingredient[];
@@ -35,6 +40,7 @@ interface CartaComprasScreenProps {
 }
 
 export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
+  inventoryScope = 'bar', contextName, ingredientCatalog = [],
   cocktails,
   setCocktails,
   ingredients,
@@ -42,7 +48,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
   businessProfile,
   setBusinessProfile,
 }) => {
-  const [activeTab, setActiveTab] = useState<'carta' | 'compras'>('carta');
+  const [activeTab, setActiveTab] = useState<'carta' | 'compras'>(inventoryScope === 'evento' ? 'compras' : 'carta');
   const [selectedCocktailId, setSelectedCocktailId] = useState<string>(cocktails[0]?.id || '');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -67,11 +73,14 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
   const [newProdImage, setNewProdImage] = useState(DEFAULT_IMAGE_GALLERY[0].url);
   const [showEditPhotoPicker, setShowEditPhotoPicker] = useState(false);
 
+  const purchaseOptions = inventoryScope === 'evento'
+    ? [...ingredients, ...ingredientCatalog.filter(item=>!ingredients.some(existing=>existing.id===item.id)).map(item=>({...item,currentStockUnits:0}))]
+    : ingredients;
   // Quick Purchase Form (Compras de Insumos)
-  const [purchaseIngId, setPurchaseIngId] = useState<string>(ingredients[0]?.id || '');
+  const [purchaseIngId, setPurchaseIngId] = useState<string>(purchaseOptions[0]?.id || '');
   const [purchaseQty, setPurchaseQty] = useState('6');
   const [purchaseUnitCost, setPurchaseUnitCost] = useState(
-    (ingredients[0]?.packageCost ?? 38).toString()
+    (purchaseOptions[0]?.packageCost ?? 38).toString()
   );
 
   // New Insumo Creator (inside Compras tab)
@@ -111,26 +120,46 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
 
   const [deletingIngredient, setDeletingIngredient] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const deleteLock = useRef(false);
   const handleDeleteIngredient = async (ingredient: Ingredient) => {
-    const usedIn = cocktails.filter(c => c.recipe.some(r => r.ingredientId === ingredient.id));
-    if (usedIn.length) {
-      setStatusMessage(`No se puede eliminar ${ingredient.name}: se usa en ${usedIn.map(c => c.name).join(', ')}. Quita o reemplaza el insumo en esas recetas primero.`);
-      setDeletingIngredient(null);
-      return;
-    }
+    if (deleteLock.current) return;
+    deleteLock.current = true;
     setDeleteBusy(true);
+    setDeleteError('');
+    const plan = planIngredientDeletion(cocktails, ingredient.id);
+    let recipesUpdated = false;
     try {
-      if (isSupabaseConfigured()) {
+      if (inventoryScope === 'bar' && isSupabaseConfigured()) {
+        if (!navigator.onLine) throw new Error('No hay conexión. El insumo se conserva; vuelve a intentar cuando tengas internet.');
+        if (plan.affected.length) {
+          const changed = plan.cocktails.filter(c => plan.affected.some(original => original.id === c.id));
+          const result = await syncCocktailsToSupabase(changed);
+          if (!result.success) throw new Error('No se pudieron actualizar las recetas. El insumo se conserva.');
+          recipesUpdated = true;
+        }
         const result = await deleteIngredientFromSupabase(ingredient.id);
-        if (!result.success) throw new Error(result.error);
+        if (!result.success) throw new Error(result.error || 'No se pudo eliminar el insumo.');
       }
-      setIngredients(prev => prev.filter(i => i.id !== ingredient.id));
+      setCocktails(previous => planIngredientDeletion(previous, ingredient.id).cocktails);
+      setIngredients(previous => previous.filter(i => i.id !== ingredient.id));
       if (purchaseIngId === ingredient.id) setPurchaseIngId(ingredients.find(i => i.id !== ingredient.id)?.id || '');
       setDeletingIngredient(null);
-      setStatusMessage(`✓ ${ingredient.name} eliminado.`);
-    } catch {
-      setStatusMessage('No se pudo eliminar el insumo. Revisa la conexión o si tiene registros asociados.');
-    } finally { setDeleteBusy(false); }
+      setStatusMessage(`✓ ${ingredient.name} eliminado.${plan.affected.length ? ` ${plan.affected.length} producto(s) pausados para revisar su receta.` : ''}`);
+    } catch (error) {
+      let message = error instanceof Error ? error.message : 'No se pudo eliminar el insumo. Vuelve a intentar.';
+      if (recipesUpdated) {
+        const restored = await syncCocktailsToSupabase(plan.affected);
+        if (!restored.success) {
+          setCocktails(previous => planIngredientDeletion(previous, ingredient.id).cocktails);
+          message += ' Los productos afectados quedaron pausados; revisa sus recetas al recuperar la conexión.';
+        }
+      }
+      setDeleteError(message);
+    } finally {
+      deleteLock.current = false;
+      setDeleteBusy(false);
+    }
   };
 
   const handleUpdateRecipeAmount = (ingredientId: string, amount: number) => {
@@ -257,24 +286,12 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
     const cost = parseFloat(purchaseUnitCost) || 0;
     if (qty <= 0) return;
 
-    const targetIng = ingredients.find(i => i.id === purchaseIngId);
+    const targetIng = purchaseOptions.find(i => i.id === purchaseIngId);
     if (!targetIng) return;
 
-    setIngredients(prev =>
-      prev.map(i =>
-        i.id === purchaseIngId
-          ? {
-              ...i,
-              currentStockUnits: i.currentStockUnits + qty,
-              packageCost: cost > 0 ? cost : i.packageCost,
-            }
-          : i
-      )
-    );
+    setIngredients(prev => prev.some(i=>i.id===purchaseIngId) ? prev.map(i=>i.id===purchaseIngId ? {...i,currentStockUnits:i.currentStockUnits+qty,packageCost:cost>0?cost:i.packageCost} : i) : [...prev,{...targetIng,currentStockUnits:qty,initialStockUnits:qty,packageCost:cost>0?cost:targetIng.packageCost}]);
 
-    setStatusMessage(
-      `✓ ¡Compra registrada! +${qty} unidades de ${targetIng.name} ingresadas a bodega.`
-    );
+    setStatusMessage(`✓ +${qty} unidades de ${targetIng.name} agregadas ${inventoryScope === 'evento' ? 'a este evento' : 'a bodega'}.`);
     setTimeout(() => setStatusMessage(null), 3500);
     setPurchaseQty('6');
   };
@@ -502,13 +519,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
         }
 
         if (parsedIngredients.length > 0) {
-          setIngredients(prev => {
-            const map = new Map(prev.map(item => [item.name.toLowerCase(), item]));
-            for (const item of parsedIngredients) {
-              map.set(item.name.toLowerCase(), item);
-            }
-            return Array.from(map.values());
-          });
+          setIngredients(prev => mergeImportedIngredients(prev, parsedIngredients));
           setStatusMessage(`✓ Se importaron ${parsedIngredients.length} insumos exitosamente.`);
           setTimeout(() => setStatusMessage(null), 4000);
         } else {
@@ -535,6 +546,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
         </div>
       )}
 
+      {inventoryScope === 'evento' && <div className="px-4 sm:px-6 py-2 bg-orange-50 border-b border-orange-100 text-xs text-orange-900 shrink-0"><strong>Evento: {contextName}</strong> · Insumos, cantidades y Excel de este evento. El inventario habitual del bar se mantiene separado.</div>}
       {/* Top Navigation */}
       <div className="px-4 sm:px-6 py-3 bg-white border-b border-stone-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-1.5 bg-stone-100 p-1 rounded-2xl border border-stone-200">
@@ -559,7 +571,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
             }`}
           >
             <Package className="w-3.5 h-3.5" />
-            <span>Compras de Insumos & Bodega</span>
+            <span>{inventoryScope === 'evento' ? 'Insumos del evento' : 'Compras de Insumos & Bodega'}</span>
           </button>
         </div>
 
@@ -1165,10 +1177,10 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                   Registro Rápido de Compras
                 </span>
                 <h3 className="text-base font-extrabold text-stone-900 mt-0.5">
-                  ¿Qué compraste hoy o para el mes?
+                  {inventoryScope === 'evento' ? 'Agregar o aumentar insumos del evento' : '¿Qué compraste hoy o para el mes?'}
                 </h3>
                 <p className="text-xs text-stone-500">
-                  Suma botellas o insumos a tu bodega con 1 toque.
+                  {inventoryScope === 'evento' ? 'Registra lo recibido o importa el Excel desde Subir Excel (.xlsx).' : 'Suma botellas o insumos a tu bodega con 1 toque.'}
                 </p>
               </div>
 
@@ -1236,12 +1248,12 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                   value={purchaseIngId}
                   onChange={e => {
                     setPurchaseIngId(e.target.value);
-                    const ing = ingredients.find(i => i.id === e.target.value);
+                    const ing = purchaseOptions.find(i => i.id === e.target.value);
                     if (ing) setPurchaseUnitCost(ing.packageCost.toString());
                   }}
                   className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-stone-900 focus:outline-none focus:border-orange-500"
                 >
-                  {ingredients.map(ing => (
+                  {purchaseOptions.map(ing => (
                     <option key={ing.id} value={ing.id}>
                       {ing.name} (Stock: {ing.currentStockUnits})
                     </option>
@@ -1250,7 +1262,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-bold text-stone-700 block mb-1">Cantidad Comprada</label>
+                <label className="text-xs font-bold text-stone-700 block mb-1">{inventoryScope === 'evento' ? 'Cantidad recibida' : 'Cantidad Comprada'}</label>
                 <input
                   type="number"
                   step="1"
@@ -1283,7 +1295,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-sm transition active:scale-95 cursor-pointer"
                 >
-                  ✓ Registrar Compra
+                  {inventoryScope === 'evento' ? 'Agregar cantidad al evento' : '✓ Registrar Compra'}
                 </button>
               </div>
             </form>
@@ -1293,7 +1305,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
           <div className="p-5 rounded-3xl bg-white border border-stone-200 shadow-xs space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-wider text-stone-900 flex items-center gap-2">
               <Boxes className="w-4 h-4 text-orange-600" />
-              <span>Inventario Actual en Bodega (Edición Rápida)</span>
+              <span>{inventoryScope === 'evento' ? 'Inventario del evento (edición rápida)' : 'Inventario Actual en Bodega (Edición Rápida)'}</span>
             </h4>
 
             <div className="divide-y divide-stone-100 border border-stone-200 rounded-2xl overflow-hidden">
@@ -1309,7 +1321,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
                     <div className="flex items-center gap-1 bg-white border border-stone-200 rounded-xl px-2 py-1">
                       <span className="text-[10px] text-stone-400">S/.</span>
                       <input
@@ -1340,11 +1352,14 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                       />
                     </div>
 
-                    {deletingIngredient === ing.id ? <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-rose-700">¿Eliminar {ing.name} del inventario?</span>
-                      <button disabled={deleteBusy} onClick={() => handleDeleteIngredient(ing)} className="min-h-11 px-3 rounded-xl bg-rose-600 text-white font-bold">{deleteBusy ? 'Eliminando…' : 'Sí, eliminar'}</button>
-                      <button disabled={deleteBusy} onClick={() => setDeletingIngredient(null)} className="min-h-11 px-3 rounded-xl border">Cancelar</button>
-                    </div> : <button onClick={() => setDeletingIngredient(ing.id)} className="min-h-11 px-3 rounded-xl text-rose-700 border border-rose-200 flex items-center gap-1"><Trash2 className="w-4 h-4" />Eliminar</button>}
+                    {deletingIngredient === ing.id ? <div className="w-full sm:max-w-sm rounded-2xl border border-rose-200 bg-rose-50 p-3 space-y-2">
+                      <p className="text-xs font-bold text-rose-900">¿Eliminar {ing.name} del inventario?</p>
+                      {cocktails.some(c => c.recipe.some(r => r.ingredientId === ing.id)) && <p className="text-xs leading-relaxed text-rose-800">Se quitará de las recetas de <strong>{cocktails.filter(c => c.recipe.some(r => r.ingredientId === ing.id)).map(c => c.name).join(', ')}</strong>. Esos productos se pausarán hasta que revises sus recetas. Los pedidos anteriores y los inventarios propios de eventos se conservan.</p>}
+                      {deleteError && <p role="alert" className="text-xs font-semibold text-rose-800">{deleteError}</p>}
+                      <div className="flex flex-wrap gap-2"><button type="button" disabled={deleteBusy} onClick={() => handleDeleteIngredient(ing)} className="min-h-12 px-3 rounded-xl bg-rose-600 text-white font-bold disabled:opacity-50">{deleteBusy ? 'Eliminando…' : 'Sí, eliminar'}</button>
+                      <button type="button" disabled={deleteBusy} onClick={() => { setDeletingIngredient(null); setDeleteError(''); }} className="min-h-12 px-3 rounded-xl border border-rose-200 bg-white font-bold">Cancelar</button></div>
+                    </div> : <button type="button" disabled={deleteBusy} onClick={() => { setDeletingIngredient(ing.id); setDeleteError(''); }} className="min-h-11 px-3 rounded-xl text-rose-700 border border-rose-200 flex items-center gap-1"><Trash2 className="w-4 h-4" />Eliminar</button>}
+
 
                     <span
                       className={`text-[10px] font-bold w-24 text-right ${
