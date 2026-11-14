@@ -21,6 +21,7 @@ import {
   Image as ImageIcon,
   HelpCircle,
 } from 'lucide-react';
+import { deleteIngredientFromSupabase, isSupabaseConfigured } from '../lib/supabase';
 import { HelpTutorialModal } from './HelpTutorialModal';
 
 interface CartaComprasScreenProps {
@@ -106,6 +107,30 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
     setSelectedCocktailId(remaining[0]?.id || '');
     setStatusMessage(`✓ "${activeCocktail.name}" eliminado de la carta.`);
     setTimeout(() => setStatusMessage(null), 3000);
+  };
+
+  const [deletingIngredient, setDeletingIngredient] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const handleDeleteIngredient = async (ingredient: Ingredient) => {
+    const usedIn = cocktails.filter(c => c.recipe.some(r => r.ingredientId === ingredient.id));
+    if (usedIn.length) {
+      setStatusMessage(`No se puede eliminar ${ingredient.name}: se usa en ${usedIn.map(c => c.name).join(', ')}. Quita o reemplaza el insumo en esas recetas primero.`);
+      setDeletingIngredient(null);
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      if (isSupabaseConfigured()) {
+        const result = await deleteIngredientFromSupabase(ingredient.id);
+        if (!result.success) throw new Error(result.error);
+      }
+      setIngredients(prev => prev.filter(i => i.id !== ingredient.id));
+      if (purchaseIngId === ingredient.id) setPurchaseIngId(ingredients.find(i => i.id !== ingredient.id)?.id || '');
+      setDeletingIngredient(null);
+      setStatusMessage(`✓ ${ingredient.name} eliminado.`);
+    } catch {
+      setStatusMessage('No se pudo eliminar el insumo. Revisa la conexión o si tiene registros asociados.');
+    } finally { setDeleteBusy(false); }
   };
 
   const handleUpdateRecipeAmount = (ingredientId: string, amount: number) => {
@@ -1314,6 +1339,12 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                         className="w-12 font-mono font-bold text-right text-stone-900 focus:outline-none"
                       />
                     </div>
+
+                    {deletingIngredient === ing.id ? <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-rose-700">¿Eliminar {ing.name} del inventario?</span>
+                      <button disabled={deleteBusy} onClick={() => handleDeleteIngredient(ing)} className="min-h-11 px-3 rounded-xl bg-rose-600 text-white font-bold">{deleteBusy ? 'Eliminando…' : 'Sí, eliminar'}</button>
+                      <button disabled={deleteBusy} onClick={() => setDeletingIngredient(null)} className="min-h-11 px-3 rounded-xl border">Cancelar</button>
+                    </div> : <button onClick={() => setDeletingIngredient(ing.id)} className="min-h-11 px-3 rounded-xl text-rose-700 border border-rose-200 flex items-center gap-1"><Trash2 className="w-4 h-4" />Eliminar</button>}
 
                     <span
                       className={`text-[10px] font-bold w-24 text-right ${

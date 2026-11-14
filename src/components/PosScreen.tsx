@@ -122,8 +122,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     if (cartItems.length === 0) return;
 
     const newOrder: Order = {
-      id: `ORD-${Date.now().toString().slice(-4)}`,
+      id: `ORD-${crypto.randomUUID()}`,
       timestamp: Date.now(),
+      status: 'preparing',
       orderType,
       items: cartItems.map(item => ({
         cocktailId: item.cocktail.id,
@@ -464,11 +465,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             >
               <CheckCircle className="w-4 h-4" />
               <span>
-                {orderType === 'venta'
-                  ? `CONFIRMAR PEDIDO (S/. ${totalCartAmount.toFixed(2)})`
-                  : orderType === 'dj'
-                  ? `REGISTRAR TRAGO GRATIS DJ (${totalCartCount} un)`
-                  : `REGISTRAR CORTESÍA / REGALO (${totalCartCount} un)`}
+                Enviar a preparación
               </span>
             </button>
           </div>

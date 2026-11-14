@@ -277,7 +277,7 @@ export const Header: React.FC<HeaderProps> = ({
           title="Estación de preparación de barra"
         >
           <ChefHat className="w-3.5 h-3.5 shrink-0" />
-          <span className="hidden md:inline">Prep</span>
+          <span>Preparación</span>
           {preparingCount > 0 && (
             <span className="px-1.5 py-0.2 rounded-full bg-orange-600 text-white font-mono text-[10px] font-black shrink-0">
               {preparingCount}

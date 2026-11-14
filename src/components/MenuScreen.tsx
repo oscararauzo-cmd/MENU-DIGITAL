@@ -22,7 +22,6 @@ interface MenuScreenProps {
   businessProfile: BusinessProfile;
   onAddOrder: (order: Order) => void;
   onGoToCartaCompras?: () => void;
-  onPrintOrder?: (order: Order) => void;
 }
 
 export const MenuScreen: React.FC<MenuScreenProps> = ({
@@ -31,8 +30,8 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
   businessProfile,
   onAddOrder,
   onGoToCartaCompras,
-  onPrintOrder,
 }) => {
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [cart, setCart] = useState<Record<string, number>>({});
   const [orderNote, setOrderNote] = useState<string>('');
@@ -142,10 +141,10 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
 
     const isCourtesy = paymentMethod === 'cortesia';
     const finalAmount = isCourtesy ? 0 : totalAmount;
-    const orderType: OrderType = isCourtesy ? 'dj' : 'venta';
+    const orderType: OrderType = isCourtesy ? 'cortesia' : 'venta';
 
     const newOrder: Order = {
-      id: `ORD-${Date.now().toString().slice(-4)}`,
+      id: `ORD-${crypto.randomUUID()}`,
       timestamp: Date.now(),
       orderType,
       paymentMethod,
@@ -163,21 +162,7 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
 
     onAddOrder(newOrder);
 
-    if (onPrintOrder) {
-      onPrintOrder(newOrder);
-    }
-
-    const methodLabels: Record<PaymentMethod, string> = {
-      yape_plin: 'Yape / Plin',
-      tarjeta: 'Tarjeta POS',
-      efectivo: 'Efectivo',
-      cortesia: 'Cortesía',
-      otro: 'Cobro',
-    };
-
-    const msg = isCourtesy
-      ? `✓ Cortesía registrada (#${newOrder.id})`
-      : `✓ ¡Cobrado S/. ${finalAmount.toFixed(2)} con ${methodLabels[paymentMethod]}! (#${newOrder.id})`;
+    const msg = `✓ Pedido enviado a preparación · ${newOrder.items.reduce((n, i) => n + i.quantity, 0)} productos`;
 
     setLastNotification(msg);
     setTimeout(() => setLastNotification(null), 3000);
@@ -297,74 +282,23 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
             Total a Cobrar:
           </span>
           <span className="text-xl lg:text-2xl font-mono font-black text-orange-600">
-            S/. {totalAmount.toFixed(2)}
+            S/. {(paymentMethod === 'cortesia' ? 0 : totalAmount).toFixed(2)}
           </span>
         </div>
 
-        {/* 4 HIGH-SPEED 1-TAP PAYMENT BUTTONS */}
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => handleExecuteOrder('yape_plin')}
-            disabled={totalCount === 0}
-            className={`py-2.5 px-2 rounded-2xl font-extrabold text-xs flex flex-col items-center justify-center gap-0.5 shadow-sm transition active:scale-95 cursor-pointer ${
-              totalCount > 0
-                ? 'bg-[#702082] hover:bg-[#591768] text-white shadow-purple-900/20'
-                : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-            }`}
-          >
-            <div className="flex items-center gap-1.5">
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>YAPE / PLIN</span>
-            </div>
-            <span className="font-mono text-[11px] font-bold text-purple-200">
-              S/. {totalAmount.toFixed(2)}
-            </span>
-          </button>
-
-          <button
-            onClick={() => handleExecuteOrder('tarjeta')}
-            disabled={totalCount === 0}
-            className={`py-2.5 px-2 rounded-2xl font-extrabold text-xs flex flex-col items-center justify-center gap-0.5 shadow-sm transition active:scale-95 cursor-pointer ${
-              totalCount > 0
-                ? 'bg-[#0f4c81] hover:bg-[#0b3861] text-white shadow-blue-900/20'
-                : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-            }`}
-          >
-            <div className="flex items-center gap-1.5">
-              <CreditCard className="w-3.5 h-3.5" />
-              <span>TARJETA / POS</span>
-            </div>
-            <span className="font-mono text-[11px] font-bold text-blue-200">
-              S/. {totalAmount.toFixed(2)}
-            </span>
-          </button>
-
-          <button
-            onClick={() => handleExecuteOrder('efectivo')}
-            disabled={totalCount === 0}
-            className={`py-2.5 px-2 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer ${
-              totalCount > 0
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20'
-                : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-            }`}
-          >
-            <Coins className="w-3.5 h-3.5" />
-            <span>EFECTIVO</span>
-          </button>
-
-          <button
-            onClick={() => handleExecuteOrder('cortesia')}
-            disabled={totalCount === 0}
-            className={`py-2.5 px-2 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer ${
-              totalCount > 0
-                ? 'bg-purple-950 hover:bg-purple-900 text-amber-300 border border-purple-800'
-                : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-            }`}
-          >
-            <Gift className="w-3.5 h-3.5 text-amber-400" />
-            <span>CORTESÍA DJ</span>
-          </button>
-        </div>
+        <label className="block text-xs font-semibold text-stone-600">
+          Forma de pago
+          <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as PaymentMethod)} className="mt-1 w-full rounded-xl border border-stone-300 bg-white p-3 text-stone-900">
+            <option value="efectivo">Efectivo</option>
+            <option value="yape_plin">Yape / Plin</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="cortesia">Cortesía</option>
+          </select>
+        </label>
+        <button onClick={() => handleExecuteOrder(paymentMethod)} disabled={totalCount === 0}
+          className="w-full min-h-12 rounded-xl bg-orange-600 p-3 font-bold text-white disabled:bg-stone-200 disabled:text-stone-400">
+          Enviar a preparación
+        </button>
       </div>
     </>
   );

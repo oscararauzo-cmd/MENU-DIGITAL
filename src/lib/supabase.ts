@@ -374,3 +374,9 @@ export async function syncBusinessProfileToSupabase(profile: BusinessProfile): P
     return { success: false, error: err.message };
   }
 }
+
+export async function deleteIngredientFromSupabase(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!supabase) return { success: false, error: 'Sin conexión configurada' };
+  const { error } = await supabase.from('ingredients').delete().eq('id', id);
+  return error ? { success: false, error: error.message } : { success: true };
+}

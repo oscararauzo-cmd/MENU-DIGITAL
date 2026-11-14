@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BarEvent, Cocktail, Ingredient, Order, WasteRecord, BusinessProfile, OrderPreparationStatus } from './types/bar';
 import { INITIAL_EVENTS, INITIAL_COCKTAILS, INITIAL_INGREDIENTS, DEFAULT_BUSINESS_PROFILE } from './data/initialData';
 import {
@@ -33,6 +33,8 @@ import { BarGuideModal } from './components/BarGuideModal';
 import { PinLockModal } from './components/PinLockModal';
 
 export default function App() {
+  const [orderSyncError, setOrderSyncError] = useState('');
+  const pendingOrders = useRef(new Set<string>());
   // Main View: 'pdv' (Barra) | 'carta_compras' (Carta & Compras) | 'ventas' (Caja & Mes) | 'preparacion' (Cocina/Prep)
   const [currentView, setCurrentView] = useState<MainAppView>('pdv');
   const [operationMode, setOperationMode] = useState<OperationMode>('dia');
@@ -93,9 +95,6 @@ export default function App() {
       const saved = localStorage.getItem('altura_ingredients_v2');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const existingIds = new Set(parsed.map((i: Ingredient) => i.id));
-        const missing = INITIAL_INGREDIENTS.filter(i => !existingIds.has(i.id));
-        if (missing.length > 0) return [...parsed, ...missing];
         return parsed;
       }
     } catch (e) {
@@ -197,6 +196,32 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Refresh orders across tablet and phone without overwriting local stock or drafts.
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let cancelled = false;
+    let fetching = false;
+    const refresh = async () => {
+      if (fetching) return;
+      fetching = true;
+      try {
+        const remote = await fetchInitialStateFromSupabase();
+        if (cancelled || !remote?.events) return;
+        setEvents(previous => previous.map(event => {
+          const incoming = remote.events?.find(e => e.id === event.id);
+          if (!incoming) return event;
+          const merged = new Map(event.orders.map(o => [o.id, o]));
+          for (const order of incoming.orders) {
+            if (!pendingOrders.current.has(order.id)) merged.set(order.id, order);
+          }
+          return { ...event, orders: [...merged.values()] };
+        }));
+      } finally { fetching = false; }
+    };
+    const timer = window.setInterval(refresh, 5000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, []);
+
   // Sync to localStorage & Supabase
   useEffect(() => {
     try {
@@ -290,7 +315,8 @@ export default function App() {
     }
 
     if (isSupabaseConfigured()) {
-      pushOrderToSupabase(newOrder, activeEvent.id).catch(console.error);
+      pendingOrders.current.add(newOrder.id);
+      pushOrderToSupabase(newOrder, activeEvent.id).then(result => { setOrderSyncError(result.success ? '' : 'El pedido se guardó en este dispositivo, pero no llegó a la nube. Revisa la conexión antes de continuar.'); }).catch(() => setOrderSyncError('No se pudo enviar el pedido a la nube.')).finally(() => pendingOrders.current.delete(newOrder.id));
     }
   };
 
@@ -396,7 +422,8 @@ export default function App() {
     );
 
     if (isSupabaseConfigured()) {
-      updateOrderStatusInSupabase(orderId, status).catch(console.error);
+      pendingOrders.current.add(orderId);
+      updateOrderStatusInSupabase(orderId, status).then(result => { setOrderSyncError(result.success ? '' : 'El cambio de estado no llegó a la nube. Revisa la conexión.'); }).catch(() => setOrderSyncError('No se pudo actualizar el estado en la nube.')).finally(() => pendingOrders.current.delete(orderId));
     }
   };
 
@@ -470,7 +497,6 @@ export default function App() {
           <KdsScreen
             activeEvent={activeEvent}
             onUpdateOrderStatus={handleUpdateOrderStatus}
-            onPrintOrder={handlePrintOrder}
             onGoToBarra={() => setCurrentView('pdv')}
           />
         ) : (
@@ -480,7 +506,6 @@ export default function App() {
             businessProfile={businessProfile}
             onAddOrder={handleAddOrder}
             onGoToCartaCompras={() => setCurrentView('carta_compras')}
-            onPrintOrder={handlePrintOrder}
           />
         )}
       </main>
@@ -606,6 +631,10 @@ export default function App() {
         onClose={() => setIsGuideOpen(false)}
         onGoToBarra={() => setCurrentView('pdv')}
       />
+
+      {orderSyncError && <div role="alert" className="fixed bottom-4 inset-x-4 z-[100] rounded-xl bg-rose-800 text-white p-4 flex justify-between gap-3 text-sm">
+        <span>{orderSyncError}</span><button onClick={() => setOrderSyncError('')} className="font-bold px-3">Cerrar</button>
+      </div>}
 
       {/* Ticket Térmico de Comanda (Impresión y Envío a Preparación) */}
       <TicketModal
