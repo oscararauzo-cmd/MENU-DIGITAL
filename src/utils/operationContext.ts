@@ -17,7 +17,7 @@ export function encodeEventSnapshot(event: BarEvent) {
   return { ...event.initialIngredientsSnapshot, __altura_context: {
     version: 1, operationType: eventKind(event), isConsignment: event.isConsignment,
     organizerName: event.organizerName, consignmentNotes: event.consignmentNotes,
-    inventory: event.inventory || [], recipeSnapshot: event.recipeSnapshot, inventorySettledAt: event.inventorySettledAt,
+    inventory: event.inventory || [], recipeSnapshot: event.recipeSnapshot, menuCategories: event.menuCategories, inventorySettledAt: event.inventorySettledAt,
   } };
 }
 export function decodeEventSnapshot(raw: unknown): Partial<BarEvent> & Pick<BarEvent, 'initialIngredientsSnapshot'> {
@@ -26,7 +26,7 @@ export function decodeEventSnapshot(raw: unknown): Partial<BarEvent> & Pick<BarE
   return { initialIngredientsSnapshot: Object.fromEntries(Object.entries(stock).filter(([,value]) => typeof value === 'number')), ...(meta?.version === 1 ? {
     operationType: meta.operationType === 'evento' ? 'evento' : 'dia',
     isConsignment: Boolean(meta.isConsignment), organizerName: meta.organizerName,
-    consignmentNotes: meta.consignmentNotes, recipeSnapshot: Array.isArray(meta.recipeSnapshot) ? meta.recipeSnapshot : undefined, inventory: Array.isArray(meta.inventory) ? meta.inventory : [], inventorySettledAt: meta.inventorySettledAt,
+    consignmentNotes: meta.consignmentNotes, menuCategories: Array.isArray(meta.menuCategories) ? meta.menuCategories : undefined, recipeSnapshot: Array.isArray(meta.recipeSnapshot) ? meta.recipeSnapshot : undefined, inventory: Array.isArray(meta.inventory) ? meta.inventory : [], inventorySettledAt: meta.inventorySettledAt,
   } : {}) };
 }
 export function eventInventory(event: BarEvent, cocktails: Cocktail[]): Ingredient[] {

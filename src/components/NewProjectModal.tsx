@@ -9,13 +9,14 @@ interface NewProjectModalProps {
   ingredients?: Ingredient[];
   cocktails?: Cocktail[];
   initialType?: 'dia' | 'evento';
+  fixedType?: boolean;
   isOpen: boolean;
   onClose: () => void;
   onSaveEvent: (event: BarEvent) => void;
 }
 
 export const NewProjectModal: React.FC<NewProjectModalProps> = ({
-  ingredients = [], cocktails = [], initialType = 'dia',
+  ingredients = [], cocktails = [], initialType = 'dia', fixedType = false,
   isOpen,
   onClose,
   onSaveEvent,
@@ -38,7 +39,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
       id: `ev-${Date.now()}`,
       name: name.trim(),
       operationType: projectType,
-      recipeSnapshot: projectType === 'evento' ? cocktails.map(c=>({...c,recipe:c.recipe.map(r=>({...r}))})) : undefined,
+      recipeSnapshot: projectType === 'evento' ? [] : undefined,
       inventory: projectType === 'evento' ? ingredients.filter(i => quantities[i.id] > 0).map(ingredient => ({ ingredient: { ...ingredient }, receivedUnits: quantities[ingredient.id], openedUnits: 0 })) : [],
       date,
       status: 'active',
@@ -87,7 +88,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         {/* Form: Ultra Intuitive, 2 Simple Fields! */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {/* Situation selector */}
-          <div>
+          {!fixedType && <div>
             <label className="text-xs font-bold text-stone-700 block mb-1.5">
               ¿Para qué situación es?
             </label>
@@ -120,7 +121,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 <span className="text-[10px] text-stone-400 font-normal">Fiesta o fecha puntual</span>
               </button>
             </div>
-          </div>
+          </div>}
 
           <div>
             <label className="text-xs font-bold text-stone-700 block mb-1">

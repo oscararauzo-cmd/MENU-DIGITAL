@@ -1,3 +1,4 @@
+import { copyProductsToEvent, copyEventIngredientDefinitions } from '../utils/eventMenu';
 import { IngredientPackagingForm } from './IngredientPackagingForm';
 import { packageUnits, unitsInPackage, containerVolume, packagingDescription, stockDescription, presentationLabel, recipeConsumption } from '../utils/packaging';
 import { mergeImportedIngredients } from '../utils/ingredientImport';
@@ -31,6 +32,8 @@ import { HelpTutorialModal } from './HelpTutorialModal';
 interface CartaComprasScreenProps {
   inventoryScope?: 'bar' | 'evento';
   contextName?: string;
+  contextId?: string;
+  barCocktails?: Cocktail[];
   ingredientCatalog?: Ingredient[];
   cocktails: Cocktail[];
   setCocktails: React.Dispatch<React.SetStateAction<Cocktail[]>>;
@@ -42,7 +45,7 @@ interface CartaComprasScreenProps {
 }
 
 export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
-  inventoryScope = 'bar', contextName, ingredientCatalog = [],
+  inventoryScope = 'bar', contextName, contextId = 'evento', barCocktails = [], ingredientCatalog = [],
   cocktails,
   setCocktails,
   ingredients,
@@ -50,6 +53,8 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
   businessProfile,
   setBusinessProfile,
 }) => {
+  const [choosingBarProducts, setChoosingBarProducts] = useState(false);
+  const [selectedBarProducts,setSelectedBarProducts] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'carta' | 'compras'>(inventoryScope === 'evento' ? 'compras' : 'carta');
   const [selectedCocktailId, setSelectedCocktailId] = useState<string>(cocktails[0]?.id || '');
   const [searchTerm, setSearchTerm] = useState('');
@@ -564,7 +569,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
             }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span>Carta, Precios & Recetas</span>
+            <span>{inventoryScope==='evento'?'Carta del evento':'Carta del bar'}</span>
           </button>
 
           <button
@@ -623,6 +628,11 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
       </div>
 
       {/* TAB 1: CARTA, PRECIOS & RECETAS */}
+      {activeTab==='carta'&&inventoryScope==='evento'&&<section className="px-4 sm:px-6 py-3 border-b border-orange-100 bg-orange-50/50 shrink-0 space-y-3">
+        <div className="flex flex-wrap justify-between items-center gap-2"><p className="text-xs text-orange-950"><strong>Carta exclusiva de {contextName}.</strong> Crea sus productos o elige cuáles copiar del bar. Sus cambios no afectan la carta habitual. Las recetas copiadas traen sus insumos con cantidad cero.</p><button onClick={()=>setChoosingBarProducts(value=>!value)} className="min-h-11 px-3 rounded-xl border border-orange-200 bg-white text-orange-800 text-xs font-bold">{choosingBarProducts?'Cerrar selección':'Elegir productos del bar'}</button></div>
+        {choosingBarProducts&&<div className="rounded-2xl border border-stone-200 bg-white p-3 space-y-3"><div className="max-h-48 overflow-y-auto grid sm:grid-cols-2 gap-2">{barCocktails.map(product=>{const exists=cocktails.some(c=>c.sourceCocktailId===product.id||c.id===product.id);return <label key={product.id} className="flex items-center gap-2 min-h-11 text-xs font-bold"><input type="checkbox" disabled={exists} checked={exists||selectedBarProducts.includes(product.id)} onChange={e=>setSelectedBarProducts(previous=>e.target.checked?[...previous,product.id]:previous.filter(id=>id!==product.id))} className="w-5 h-5 accent-orange-600"/>{product.name}{exists?' · ya en el evento':''}</label>;})}</div><button disabled={!selectedBarProducts.length} onClick={()=>{setCocktails(current=>copyProductsToEvent(current,barCocktails,selectedBarProducts,contextId));setIngredients(current=>copyEventIngredientDefinitions(current,ingredientCatalog,barCocktails.filter(product=>selectedBarProducts.includes(product.id))));setSelectedBarProducts([]);setChoosingBarProducts(false);}} className="min-h-12 px-4 rounded-xl bg-orange-600 text-white font-bold text-xs disabled:opacity-40">Copiar seleccionados al evento</button></div>}
+      </section>}
+
       {activeTab === 'carta' && (
         <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
           {/* Left Column: Product List */}
@@ -804,7 +814,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
               <div className="space-y-1.5">
                 <div className="px-1 flex items-center justify-between">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">
-                    ✓ En tu Barra ({filteredCocktails.filter(c => c.enabledForEvent).length})
+                    {inventoryScope==='evento'?'En la carta del evento':'En la carta del bar'} ({filteredCocktails.filter(c => c.enabledForEvent).length})
                   </span>
                 </div>
 
@@ -858,7 +868,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                   <div className="px-1 flex items-center justify-between gap-2">
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-stone-500 flex items-center gap-1">
                       <Sparkles className="w-3 h-3 text-orange-500" />
-                      <span>Ejemplos con Foto ({filteredCocktails.filter(c => !c.enabledForEvent).length})</span>
+                      <span>{inventoryScope==='evento'?'Productos pausados':'Ejemplos con foto'} ({filteredCocktails.filter(c => !c.enabledForEvent).length})</span>
                     </span>
 
                     <button

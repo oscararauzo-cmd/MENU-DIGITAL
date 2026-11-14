@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 interface VentasScreenProps {
+  scope?: 'context' | 'general';
   activeEvent: BarEvent;
   allEvents?: BarEvent[];
   cocktails: Cocktail[];
@@ -26,6 +27,7 @@ interface VentasScreenProps {
 }
 
 export const VentasScreen: React.FC<VentasScreenProps> = ({
+  scope = 'context',
   activeEvent,
   allEvents = [],
   cocktails,
@@ -52,8 +54,8 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
 
   // Pool of events based on period
   const relevantEvents = useMemo(() => {
-    return selectPeriodEvents(allEvents.length ? allEvents : [activeEvent], activeEvent, period, includeEvents);
-  }, [period, activeEvent, allEvents, includeEvents]);
+    return scope === 'context' ? [activeEvent] : (allEvents.length ? allEvents : [activeEvent]).filter(event=>(period==='dia'?event.date===limaDate():event.date.slice(0,7)===limaDate().slice(0,7))&&(includeEvents||event.operationType==='dia'));
+  }, [period, activeEvent, allEvents, includeEvents, scope]);
 
   // Aggregate orders for the period
   const periodOrders = useMemo(() => {
@@ -124,7 +126,7 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
 
   return (
     <div className="flex-1 min-h-0 h-full flex flex-col bg-[#faf8f5] text-stone-900 overflow-y-auto p-4 sm:p-6 space-y-4 font-sans">
-      {period === 'mes' && <label className="flex items-center gap-3 text-sm font-bold rounded-2xl bg-white border border-stone-200 p-4"><input type="checkbox" checked={includeEvents} onChange={e=>setIncludeEvents(e.target.checked)} className="w-5 h-5 accent-orange-600" />Incluir eventos especiales en el consolidado mensual</label>}
+      {scope === 'general' && <label className="flex items-center gap-3 text-sm font-bold rounded-2xl bg-white border border-stone-200 p-4"><input type="checkbox" checked={includeEvents} onChange={e=>setIncludeEvents(e.target.checked)} className="w-5 h-5 accent-orange-600" />Incluir los eventos en el panorama general</label>}
       {/* Top Header & Period Selector */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-3xl border border-stone-200 shadow-xs shrink-0">
         <div>
@@ -132,7 +134,7 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
             Caja, Finanzas & Arqueo
           </span>
           <h2 className="text-base sm:text-lg font-bold text-stone-900 tracking-tight mt-0.5 capitalize">
-            {period === 'mes'
+            {scope === 'context' ? `${eventKind(activeEvent)==='evento'?'Evento':'Jornada'}: ${activeEvent.name}` : period === 'mes'
               ? `Resumen Financiero del Mes (${currentMonthLabel})`
               : period === 'dia'
               ? 'Arqueo de Caja del Día de Hoy'
@@ -140,44 +142,10 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
           </h2>
         </div>
 
-        {/* Period Selector Tabs: Día a Día vs Mes vs Evento */}
-        <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-2xl border border-stone-200">
-          <button
-            onClick={() => handleSelectPeriod('dia')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-              period === 'dia'
-                ? 'bg-white text-orange-600 shadow-xs font-extrabold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <Sun className="w-3.5 h-3.5 text-amber-500" />
-            <span>Hoy</span>
-          </button>
-
-          <button
-            onClick={() => handleSelectPeriod('mes')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-              period === 'mes'
-                ? 'bg-white text-orange-600 shadow-xs font-extrabold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5 text-blue-500" />
-            <span>Este Mes</span>
-          </button>
-
-          <button
-            onClick={() => handleSelectPeriod('evento')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-              period === 'evento'
-                ? 'bg-white text-orange-600 shadow-xs font-extrabold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <Flame className="w-3.5 h-3.5 text-orange-600" />
-            <span>Por Evento</span>
-          </button>
-        </div>
+        {scope==='general'&&<div className="flex items-center gap-1 bg-stone-100 p-1 rounded-2xl border border-stone-200">
+          <button onClick={()=>handleSelectPeriod('dia')} className={`min-h-12 px-4 rounded-xl text-xs font-bold ${period==='dia'?'bg-white text-orange-600 shadow-xs':'text-stone-600'}`}>Hoy</button>
+          <button onClick={()=>handleSelectPeriod('mes')} className={`min-h-12 px-4 rounded-xl text-xs font-bold ${period==='mes'?'bg-white text-orange-600 shadow-xs':'text-stone-600'}`}>Este mes</button>
+        </div>}
 
         <button
           onClick={handleDownloadExcel}

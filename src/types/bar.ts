@@ -48,6 +48,7 @@ export interface BusinessProfile {
 export type CocktailCategory = 'pisco' | 'autor' | 'clasico' | 'tapas_comida' | 'cerveza_sin_alcohol' | string;
 
 export interface Cocktail {
+  sourceCocktailId?: string;
   id: string;
   name: string;
   category: CocktailCategory;
@@ -110,6 +111,7 @@ export interface BarEvent {
   operationType?: 'dia' | 'evento';
   inventory?: EventInventoryLine[];
   recipeSnapshot?: Cocktail[];
+  menuCategories?: BusinessCategoryConfig[];
   inventorySettledAt?: number;
   id: string;
   name: string;

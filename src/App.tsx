@@ -77,7 +77,7 @@ export default function App() {
   // Main View: 'pdv' (Barra) | 'carta_compras' (Carta & Compras) | 'ventas' (Caja & Mes) | 'preparacion' (Cocina/Prep)
   const [currentView, setCurrentView] = useState<MainAppView>('inicio');
   const [metricsPeriod, setMetricsPeriod] = useState<OperationMode>('evento');
-  const [operationMode, setOperationMode] = useState<OperationMode>('dia');
+  const [analyticsScope,setAnalyticsScope] = useState<'context'|'general'>('context');
   const [newProjectType, setNewProjectType] = useState<'dia'|'evento'>('dia');
   const closingEvents = useRef(new Set<string>());
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
@@ -340,7 +340,7 @@ export default function App() {
   // Find currently active event
   const activeEvent = events.find(ev => ev.id === activeEventId) || events[0] || INITIAL_EVENTS[0];
   const isSpecialEvent = eventKind(activeEvent) === 'evento';
-  const activeCocktails = isSpecialEvent ? (activeEvent.recipeSnapshot || cocktails) : cocktails;
+  const activeCocktails = isSpecialEvent ? (activeEvent.recipeSnapshot || []) : cocktails;
   const activeIngredients = isSpecialEvent ? eventInventory(activeEvent, cocktails) : ingredients;
   const activeEventRef = useRef(activeEvent);
   activeEventRef.current = activeEvent;
@@ -359,22 +359,24 @@ export default function App() {
   };
   const setActiveCocktails: React.Dispatch<React.SetStateAction<Cocktail[]>> = update => {
     if (!isSpecialEvent) { setCocktails(update); return; }
-    const current = activeEventRef.current.recipeSnapshot || cocktails;
+    const current = activeEventRef.current.recipeSnapshot || [];
     updateActiveEventFields({recipeSnapshot:typeof update === 'function' ? update(current) : update});
+  };
+  const activeBusinessProfile = isSpecialEvent ? {...businessProfile,categories:activeEvent.menuCategories || businessProfile.categories} : businessProfile;
+  const setActiveBusinessProfile: React.Dispatch<React.SetStateAction<BusinessProfile>> = update => {
+    if (!isSpecialEvent) {setBusinessProfile(update);return;}
+    const current={...businessProfile,categories:activeEventRef.current.menuCategories || businessProfile.categories};
+    const next=typeof update==='function'?update(current):update;
+    updateActiveEventFields({menuCategories:next.categories.map(category=>({...category}))});
   };
   const openOperation = (event: BarEvent) => {
     setActiveEventId(event.id);
-    setOperationMode(eventKind(event));
+    setAnalyticsScope('context');
     setMetricsPeriod('evento');
     setCurrentView('resumen');
   };
-  const changeMode = (mode: OperationMode) => {
-    if (mode === 'mes') { setMetricsPeriod('mes'); setOperationMode('mes'); setCurrentView('ventas'); return; }
-    if (mode === 'dia') {
-      const daily = events.find(e=>eventKind(e)==='dia' && e.date===limaDate() && e.status==='active');
-      if (daily) { openOperation(daily); return; }
-    }
-    setCurrentView('inicio');
+  const openGeneralResults = () => {
+    setAnalyticsScope('general'); setMetricsPeriod('mes'); setCurrentView('ventas');
   };
 
 
@@ -520,6 +522,7 @@ export default function App() {
 
   // Save Event from Wizard / NewProjectModal
   const handleSaveEvent = (savedEvent: BarEvent) => {
+    if (eventKind(savedEvent)==='evento'&&!savedEvent.menuCategories) savedEvent={...savedEvent,menuCategories:businessProfile.categories.map(category=>({...category}))};
     setEvents(prev => {
       const exists = prev.some(ev => ev.id === savedEvent.id);
       if (exists) {
@@ -528,7 +531,7 @@ export default function App() {
       return [savedEvent, ...prev];
     });
     setActiveEventId(savedEvent.id);
-    setOperationMode(eventKind(savedEvent));
+    setAnalyticsScope('context');
     setCurrentView('resumen');
 
     if (isSupabaseConfigured()) {
@@ -599,16 +602,12 @@ export default function App() {
       {/* Light, Clean Top Header: Reduced by 80%, mode selector, 4 core views and settings dropdown */}
       <Header
         currentView={currentView}
-        onChangeView={view=>{if(view==='ventas')setMetricsPeriod('evento');setCurrentView(view);}}
+        onChangeView={view=>{if(view==='ventas'){setAnalyticsScope('context');setMetricsPeriod('evento');}setCurrentView(view);}}
         activeEvent={activeEvent}
-        events={events}
-        onSelectEvent={id=>{const event=events.find(e=>e.id===id);if(event)openOperation(event);}}
+        contextLabel={currentView==='ventas'&&analyticsScope==='general'?'Panorama general':isSpecialEvent?'Evento':'Bar habitual'}
         businessProfile={businessProfile}
         preparingCount={preparingCount}
-        operationMode={operationMode}
-        onChangeOperationMode={changeMode}
         onOpenPublicMenu={() => setIsPublicMenuOpen(true)}
-        onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
         onOpenPrinterModal={() => setIsPrinterModalOpen(true)}
         onOpenAssistant={() => setIsAssistantOpen(true)}
         onOpenGuide={() => setIsGuideOpen(true)}
@@ -621,28 +620,31 @@ export default function App() {
       {currentView === 'preparacion' && <OrderConnection state={connection} lastSync={lastSync} />}
       {/* Main View Area: 100% Focused, Zero Visual Clutter */}
       <main className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
-        {currentView === 'inicio' ? <OperationsDashboard events={events} onOpen={openOperation} onCreate={type=>{setNewProjectType(type);setIsNewProjectModalOpen(true);}} onMonth={()=>changeMode('mes')} />
-        : currentView === 'resumen' || (currentView === 'pdv' && activeEvent.status === 'closed') ? <OperationOverview key={activeEvent.id} event={activeEvent} cocktails={activeCocktails} catalog={ingredients} onOrders={()=>setCurrentView('pdv')} onMetrics={()=>{setMetricsPeriod('evento');setCurrentView('ventas');}} onSave={handleSaveEvent} onClose={()=>handleCloseEvent(activeEvent.id)} />
+        {currentView === 'inicio' ? <OperationsDashboard events={events} onOpen={openOperation} onCreate={type=>{setNewProjectType(type);setIsNewProjectModalOpen(true);}} onMonth={openGeneralResults} />
+        : currentView === 'resumen' || (currentView === 'pdv' && activeEvent.status === 'closed') ? <OperationOverview key={activeEvent.id} event={activeEvent} cocktails={activeCocktails} catalog={ingredients} onConfigure={()=>setCurrentView('carta_compras')} onOrders={()=>setCurrentView('pdv')} onMetrics={()=>{setAnalyticsScope('context');setMetricsPeriod('evento');setCurrentView('ventas');}} onSave={handleSaveEvent} onClose={()=>handleCloseEvent(activeEvent.id)} />
         : currentView === 'carta_compras' ? (
           <CartaComprasScreen
             key={activeEvent.id}
             inventoryScope={isSpecialEvent ? 'evento' : 'bar'}
             ingredientCatalog={ingredients}
+            barCocktails={cocktails}
+            contextId={activeEvent.id}
             contextName={isSpecialEvent ? activeEvent.name : undefined}
             cocktails={activeCocktails}
             setCocktails={setActiveCocktails}
             ingredients={activeIngredients}
             setIngredients={setActiveIngredients}
-            businessProfile={businessProfile}
-            setBusinessProfile={setBusinessProfile}
+            businessProfile={activeBusinessProfile}
+            setBusinessProfile={setActiveBusinessProfile}
             onAddWaste={handleAddWaste}
           />
         ) : currentView === 'ventas' ? (
           <VentasScreen
             activeEvent={activeEvent}
             allEvents={events}
-            cocktails={activeCocktails}
-            ingredients={activeIngredients}
+            cocktails={analyticsScope==='general'?cocktails:activeCocktails}
+            ingredients={analyticsScope==='general'?ingredients:activeIngredients}
+            scope={analyticsScope}
             operationMode={metricsPeriod}
             onChangeOperationMode={setMetricsPeriod}
           />
@@ -655,9 +657,11 @@ export default function App() {
           />
         ) : (
           <MenuScreen
+            key={activeEvent.id}
+            menuScope={isSpecialEvent?'evento':'bar'}
             cocktails={activeCocktails}
             ingredients={activeIngredients}
-            businessProfile={businessProfile}
+            businessProfile={activeBusinessProfile}
             onAddOrder={handleAddOrder}
             onGoToCartaCompras={() => setCurrentView('carta_compras')}
           />
@@ -683,6 +687,7 @@ export default function App() {
       <NewProjectModal
         key={`${isNewProjectModalOpen}-${newProjectType}`}
         initialType={newProjectType}
+        fixedType
         cocktails={cocktails}
         ingredients={ingredients}
         isOpen={isNewProjectModalOpen}

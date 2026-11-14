@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 interface MenuScreenProps {
+  menuScope?: 'bar' | 'evento';
   cocktails: Cocktail[];
   ingredients: Ingredient[];
   businessProfile: BusinessProfile;
@@ -26,6 +27,7 @@ interface MenuScreenProps {
 }
 
 export const MenuScreen: React.FC<MenuScreenProps> = ({
+  menuScope = 'bar',
   cocktails,
   ingredients,
   businessProfile,
@@ -462,10 +464,10 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
           {filteredCocktails.length === 0 && (
             <div className="col-span-full py-12 px-4 text-center space-y-3 bg-white rounded-3xl border border-dashed border-stone-300">
               <p className="text-sm font-bold text-stone-700">
-                Aún no hay productos activados en esta categoría
+                {menuScope==='evento'?'La carta de este evento no tiene productos activos en esta categoría':'Aún no hay productos activados en esta categoría'}
               </p>
               <p className="text-xs text-stone-500 max-w-sm mx-auto">
-                Ve a <strong>Carta & Compras</strong> para activar con 1 clic los tragos de ejemplo con foto o crear nuevos productos.
+                Ve a <strong>Carta & Compras</strong> {menuScope==='evento'?'para crear la carta del evento o elegir productos del bar.':'para activar productos o crear nuevos.'}
               </p>
               {onGoToCartaCompras && (
                 <button

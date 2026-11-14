@@ -53,13 +53,13 @@ Antes de modificar una pantalla, revisar estas referencias y conservar sus color
 
 ## Separación de operaciones
 
-- Al abrir la aplicación aparece Inicio: Día a día, Eventos especiales y Consolidado del mes.
+- Inicio es el único punto de elección: Bar habitual o un evento específico. El panorama general se consulta desde su enlace propio.
 - La marca ALTURA vuelve a Inicio. Seleccionar una operación abre su resumen, no mezcla el contexto con otras fechas.
 - Los registros anteriores sin tipo explícito se muestran por clasificar; no asumir automáticamente que son jornadas normales.
 - Cada evento lleva inventario y recetas propios, guardados en el JSONB de su snapshot mediante el campo reservado `__altura_context` (versión 1). Las cantidades numéricas históricas se conservan.
 - Los insumos del evento no se descuentan de la bodega habitual. Al cierre de consignación se devuelven sellados y solo los remanentes abiertos se incorporan al bar. La liquidación carga envases abiertos completos.
 - El cierre conectado reclama el registro abierto antes de transferir remanentes, para que otro dispositivo no repita el cierre. Requiere conexión cuando Supabase está configurado.
-- Las métricas abren aisladas por registro. «Hoy» incluye solo jornadas clasificadas de hoy en Lima; «Mes» filtra el mes actual y permite incluir o excluir eventos. No recurrir a otra fecha si no hay datos.
+- Los resultados del contexto abren aislados y sin filtros de otros contextos. Solo el panorama general tiene Hoy/Este mes y la opción de incluir eventos; filtrar fechas de Lima y no recurrir a otra fecha si no hay datos.
 - Guardar el contexto y los cambios de inventario de eventos pendientes de sincronización. Los pedidos pendientes conservan el contexto del evento al reintentarse.
 - La creación de pedidos sigue limpia: esta administración se hace en Inicio y Resumen, nunca en el catálogo.
 - `inicio-operaciones.png` es una referencia con datos ficticios; prueba aislada en `/tests/fixtures/operations.html`.
@@ -92,3 +92,16 @@ Antes de modificar una pantalla, revisar estas referencias y conservar sus color
 - Excel agrega Envases por paquete, Contenido por envase (ml) y Envase interior. Mantener compatibilidad con los archivos anteriores.
 - En Supabase, la presentación con su contenido se codifica con versión 1 dentro de la columna TEXT unit existente; leer también unidades históricas sin metadatos. Los snapshots de eventos conservan los campos completos.
 - `insumo-sixpack.png` muestra una prueba local de esta presentación.
+
+## Navegación única y cartas independientes
+
+Esta sección prevalece sobre referencias anteriores de selectores de operación.
+
+- Inicio es el único selector: Bar habitual o un evento de la lista. La cabecera no contiene menús de modos ni listas de proyectos.
+- La cabecera identifica el contexto actual y permite volver a su resumen; Inicio permite cambiarlo. No mostrar navegación operativa antes de elegir contexto ni mientras se revisa el panorama general.
+- Configurar evento abre Carta & Compras con carta e insumos completos. El resumen ya no repite el formulario de ingreso de insumos.
+- Resultados de un evento no ofrecen Hoy/Mes/Evento. Esos filtros viven exclusivamente en el panorama general, con inclusión opcional de eventos.
+- Un evento nuevo tiene una colección de productos vacía, separada de la carta habitual. No copiar automáticamente todos los productos ni usar la carta del bar como alternativa cuando falta una carta de evento.
+- Elegir productos del bar copia solo los seleccionados con IDs propios y recetas independientes. Sus ingredientes se añaden con cantidad cero, sin copiar el stock habitual. Los precios, recetas y categorías del evento se guardan en su contexto.
+- Conservar las cartas anteriores existentes; no borrar configuraciones guardadas al introducir esta separación.
+- Referencias actualizadas con datos locales de prueba: inicio-unico.png y carta-evento-independiente.png.
