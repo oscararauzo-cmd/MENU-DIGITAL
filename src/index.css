@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@layer utilities {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .scrollbar-none {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Override any font-serif class to use modern high-grade Outfit sans font instead of ugly ancient serif */
+.font-serif {
+  font-family: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* ========================================================================== */
+/* THERMAL RECEIPT PRINTING (POS-D BASIC 230 - 80MM / 58MM)                   */
+/* ========================================================================== */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #printable-ticket, #printable-ticket * {
+    visibility: visible;
+  }
+
+  #printable-ticket {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    margin: 0 !important;
+    padding: 2mm 3mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    color: #000 !important;
+    background: #fff !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+  }
+
+  #printable-ticket.ticket-58mm {
+    width: 58mm !important;
+    max-width: 58mm !important;
+    padding: 1.5mm 2mm !important;
+    font-size: 10px !important;
+  }
+
+  @page {
+    size: auto;
+    margin: 0;
+  }
+}

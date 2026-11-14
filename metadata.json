@@ -1,0 +1,6 @@
+{
+  "name": "Altura Bar - Control de Eventos, Logística y POS",
+  "description": "Sistema táctil en horizontal para iPad de pedidos en eventos, conteo rápido, control de stock, recetas e ingredientes, mermas, cortesías de DJ y asistente logístico con IA para Altura Andean Tapas Bar.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
