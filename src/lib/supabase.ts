@@ -67,6 +67,7 @@ export async function fetchInitialStateFromSupabase(): Promise<LoadedSupabaseSta
         currencySymbol: p.currency_symbol || 'S/.',
         categories: typeof p.categories_json === 'string' ? JSON.parse(p.categories_json) : (p.categories_json || []),
         isConfigured: Boolean(p.is_configured),
+        accessPin: p.access_pin || '1234',
       };
     }
 
@@ -348,7 +349,7 @@ export async function syncBusinessProfileToSupabase(profile: BusinessProfile): P
   if (!supabase) return { success: false };
 
   try {
-    const { error } = await supabase.from('business_profiles').upsert({
+    const payload: any = {
       id: profile.id || 'default_profile',
       name: profile.name,
       tagline: profile.tagline,
@@ -359,7 +360,12 @@ export async function syncBusinessProfileToSupabase(profile: BusinessProfile): P
       categories_json: profile.categories || [],
       is_configured: profile.isConfigured,
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'id' });
+    };
+    if (profile.accessPin) {
+      payload.access_pin = profile.accessPin;
+    }
+
+    const { error } = await supabase.from('business_profiles').upsert(payload, { onConflict: 'id' });
 
     if (error) throw error;
     return { success: true };

@@ -18,7 +18,9 @@ import {
   Sparkles,
   Tag,
   Image as ImageIcon,
+  HelpCircle,
 } from 'lucide-react';
+import { HelpTutorialModal } from './HelpTutorialModal';
 
 interface CartaComprasScreenProps {
   cocktails: Cocktail[];
@@ -52,6 +54,8 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
   // Add Category Inline State
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryLabel, setNewCategoryLabel] = useState('');
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [helpTopic, setHelpTopic] = useState<'carta' | 'consignacion'>('carta');
 
   // New Cocktail Simple Form
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
@@ -168,6 +172,18 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
     setIsAddingCategory(false);
     setStatusMessage(`✓ Categoría "${label}" agregada a tu carta y barra.`);
     setTimeout(() => setStatusMessage(null), 3000);
+  };
+
+  const handleDeleteCategory = (catId: string, catLabel: string) => {
+    if (!setBusinessProfile) return;
+    if (window.confirm(`¿Estás seguro de eliminar la categoría "${catLabel}"? Los tragos asociados se mantendrán en la carta.`)) {
+      setBusinessProfile(prev => ({
+        ...prev,
+        categories: prev.categories.filter(c => c.id !== catId),
+      }));
+      setStatusMessage(`✓ Categoría "${catLabel}" eliminada.`);
+      setTimeout(() => setStatusMessage(null), 3000);
+    }
   };
 
   const handleToggleCocktailVisibility = (cocktailId: string, enable: boolean) => {
@@ -392,13 +408,28 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
           </button>
         </div>
 
-        <button
-          onClick={handleExportExcel}
-          className="px-4 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-orange-500/20 transition active:scale-95 cursor-pointer"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Descargar Excel</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setHelpTopic(activeTab === 'carta' ? 'carta' : 'consignacion');
+              setIsHelpModalOpen(true);
+            }}
+            className="h-8 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-2xs"
+            title="Ver mini-tutorial y guía práctica"
+          >
+            <HelpCircle className="w-4 h-4 text-amber-600" />
+            <span className="hidden sm:inline">Tutorial & Ayuda</span>
+          </button>
+
+          <button
+            onClick={handleExportExcel}
+            className="px-4 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-orange-500/20 transition active:scale-95 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Descargar Excel</span>
+          </button>
+        </div>
       </div>
 
       {/* TAB 1: CARTA, PRECIOS & RECETAS */}
@@ -441,22 +472,62 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
               </div>
 
               {isAddingCategory && setBusinessProfile && (
-                <form onSubmit={handleAddCategory} className="flex items-center gap-1.5 pt-1 text-xs">
-                  <input
-                    type="text"
-                    placeholder="Nueva categoría (ej. Shots, Promos)..."
-                    value={newCategoryLabel}
-                    onChange={e => setNewCategoryLabel(e.target.value)}
-                    className="flex-1 px-2.5 py-1.5 bg-stone-50 border border-stone-300 rounded-lg text-stone-900 focus:outline-none focus:border-orange-500"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold cursor-pointer"
-                  >
-                    Agregar
-                  </button>
-                </form>
+                <div className="p-3 bg-orange-50/80 rounded-2xl border border-orange-200 space-y-2 text-xs animate-fade-in shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-orange-950 text-[11px] uppercase tracking-wider">
+                      Gestionar Categorías
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingCategory(false)}
+                      className="text-stone-400 hover:text-stone-700 font-bold text-xs cursor-pointer"
+                    >
+                      ✕ Cerrar
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleAddCategory} className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      placeholder="Nueva categoría (ej. Shots, Promos)..."
+                      value={newCategoryLabel}
+                      onChange={e => setNewCategoryLabel(e.target.value)}
+                      className="flex-1 px-2.5 py-1.5 bg-white border border-stone-300 rounded-lg text-stone-900 focus:outline-none focus:border-orange-500 text-xs"
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold cursor-pointer shrink-0 text-xs"
+                    >
+                      + Agregar
+                    </button>
+                  </form>
+
+                  {/* Lista de categorías para eliminar */}
+                  <div className="pt-2 border-t border-orange-200/60">
+                    <span className="text-[10px] text-stone-500 block mb-1.5">
+                      Categorías activas (toca el tacho 🗑️ para eliminarla):
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                      {businessProfile.categories.map(cat => (
+                        <div
+                          key={cat.id}
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-stone-200 text-xs text-stone-800 font-medium shadow-2xs"
+                        >
+                          <span>{cat.label}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCategory(cat.id, cat.label)}
+                            className="p-0.5 text-stone-400 hover:text-rose-600 transition cursor-pointer"
+                            title={`Eliminar categoría "${cat.label}"`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -1112,6 +1183,13 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* Mini-Tutorial Modal */}
+      <HelpTutorialModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        defaultTopic={helpTopic}
+      />
     </div>
   );
 };

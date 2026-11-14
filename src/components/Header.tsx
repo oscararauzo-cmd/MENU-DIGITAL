@@ -16,6 +16,8 @@ import {
   Calendar,
   Sun,
   Flame,
+  Lock,
+  KeyRound,
 } from 'lucide-react';
 
 export type MainAppView = 'pdv' | 'carta_compras' | 'ventas' | 'preparacion';
@@ -38,6 +40,8 @@ interface HeaderProps {
   onOpenGuide: () => void;
   onOpenMenuExcel: () => void;
   onOpenOnboarding: () => void;
+  onLockApp?: () => void;
+  onOpenChangePin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -57,6 +61,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenGuide,
   onOpenMenuExcel,
   onOpenOnboarding,
+  onLockApp,
+  onOpenChangePin,
 }) => {
   const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
   const [isModeSelectorOpen, setIsModeSelectorOpen] = useState(false);
@@ -292,6 +298,17 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden lg:inline">Menú Digital</span>
         </button>
 
+        {/* Botón de Bloqueo Rápido */}
+        {onLockApp && (
+          <button
+            onClick={onLockApp}
+            className="p-2 rounded-xl bg-white hover:bg-amber-50 border border-stone-200 hover:border-amber-400 text-stone-600 hover:text-amber-700 shadow-2xs transition active:scale-95 cursor-pointer"
+            title="Bloquear pantalla con PIN"
+          >
+            <Lock className="w-4 h-4" />
+          </button>
+        )}
+
         {/* 2. Menú de Ajustes y Herramientas (Agrupa todo lo secundario sin contaminar la barra) */}
         <div className="relative" ref={menuRef}>
           <button
@@ -363,6 +380,19 @@ export const Header: React.FC<HeaderProps> = ({
                   <Settings className="w-4 h-4 text-stone-400" />
                   <span>Configuración del Local</span>
                 </button>
+
+                {onOpenChangePin && (
+                  <button
+                    onClick={() => {
+                      setIsSettingsMenuOpen(false);
+                      onOpenChangePin();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-stone-700 hover:bg-stone-50 font-bold transition cursor-pointer text-left"
+                  >
+                    <KeyRound className="w-4 h-4 text-orange-500" />
+                    <span>Cambiar PIN / Contraseña</span>
+                  </button>
+                )}
               </div>
             </div>
           )}

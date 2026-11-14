@@ -13,7 +13,10 @@ import {
   Scale,
   Sparkles,
   RefreshCw,
+  Boxes,
+  HelpCircle,
 } from 'lucide-react';
+import { HelpTutorialModal } from './HelpTutorialModal';
 
 interface EventCloseScreenProps {
   activeEvent: BarEvent;
@@ -32,11 +35,30 @@ export const EventCloseScreen: React.FC<EventCloseScreenProps> = ({
 }) => {
   const [sunatAmount, setSunatAmount] = useState<string>('');
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState<boolean>(false);
 
   const metrics = calculateEventMetrics(activeEvent, cocktails, ingredients);
 
   const parsedSunat = parseFloat(sunatAmount) || 0;
   const differenceWithSunat = parsedSunat > 0 ? metrics.totalRevenue - parsedSunat : 0;
+
+  // Consignment settlement calculations (Regla de Oro: Botella abierta se paga, botella sellada se devuelve)
+  const consignmentItems = metrics.ingredientStats
+    .filter(s => s.initialStock > 0 || s.consumedPackages > 0 || s.wastePackages > 0)
+    .map(s => {
+      const openedPackages = Math.ceil(s.consumedPackages + s.wastePackages);
+      const returnedPackages = Math.max(0, s.initialStock - openedPackages);
+      const totalCostToPay = openedPackages * s.packageCost;
+      return {
+        ...s,
+        openedPackages,
+        returnedPackages,
+        totalCostToPay,
+      };
+    });
+
+  const totalConsignmentCost = consignmentItems.reduce((acc, curr) => acc + curr.totalCostToPay, 0);
+  const netSettlementBalance = metrics.totalRevenue - totalConsignmentCost;
 
   const handleExport = () => {
     setIsExporting(true);
@@ -181,6 +203,116 @@ export const EventCloseScreen: React.FC<EventCloseScreenProps> = ({
         </div>
       </div>
 
+      {/* CONSIGNMENT & THIRD-PARTY SETTLEMENT REPORT */}
+      <div className="bg-[#141210] rounded-2xl border border-orange-950/60 p-5 space-y-4 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#29221b] pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-orange-600/20 border border-orange-500/30 flex items-center justify-center text-orange-400">
+              <Boxes className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-extrabold text-white">
+                  Liquidación de Consignación con Terceros
+                </h3>
+                {activeEvent.organizerName && (
+                  <span className="px-2 py-0.5 rounded-full bg-orange-950 border border-orange-800 text-orange-300 text-[10px] font-bold">
+                    Promotor: {activeEvent.organizerName}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-[#9c8e80]">
+                Regla de barra: <strong>Botella abierta = se liquida y no se devuelve</strong>. Las botellas selladas se devuelven al organizador.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsHelpModalOpen(true)}
+            className="self-start sm:self-center px-3 py-1.5 rounded-xl bg-[#221c17] hover:bg-[#2d251f] border border-[#3d332b] text-amber-400 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+            <span>¿Cómo funciona este cuadre?</span>
+          </button>
+        </div>
+
+        {/* Consignment Settlement Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-3.5 rounded-xl bg-[#1b1714] border border-[#2b241e]">
+            <span className="text-[10px] uppercase font-bold text-[#8c7f72] block">
+              Total Insumos / Botellas Abiertas
+            </span>
+            <p className="text-xl font-mono font-extrabold text-rose-400 mt-1">
+              S/. {totalConsignmentCost.toFixed(2)}
+            </p>
+            <span className="text-[10px] text-[#9c8e80]">Costo a pagar al organizador/proveedor</span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#1b1714] border border-[#2b241e]">
+            <span className="text-[10px] uppercase font-bold text-[#8c7f72] block">
+              Ventas Totales Cobradas en Barra
+            </span>
+            <p className="text-xl font-mono font-extrabold text-[#f3ba63] mt-1">
+              S/. {metrics.totalRevenue.toFixed(2)}
+            </p>
+            <span className="text-[10px] text-[#9c8e80]">{metrics.totalDrinksSold} cócteles vendidos</span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#1b1714] border border-[#2b241e]">
+            <span className="text-[10px] uppercase font-bold text-[#8c7f72] block">
+              Ganancia Neta a Repartir / Local
+            </span>
+            <p className="text-xl font-mono font-extrabold text-emerald-400 mt-1">
+              +S/. {netSettlementBalance.toFixed(2)}
+            </p>
+            <span className="text-[10px] text-emerald-500 font-bold">
+              Utilidad limpia después de pagar insumos
+            </span>
+          </div>
+        </div>
+
+        {/* Breakdown table */}
+        <div className="overflow-x-auto rounded-xl border border-[#29221b]">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-[#1b1714] text-[#9c8e80] text-[10px] font-bold uppercase tracking-wider border-b border-[#29221b]">
+              <tr>
+                <th className="py-2.5 px-3">Insumo / Licor</th>
+                <th className="py-2.5 px-2 text-center">Entregadas Inicial</th>
+                <th className="py-2.5 px-2 text-center text-rose-400">Abiertas (A Liquidar)</th>
+                <th className="py-2.5 px-2 text-center text-emerald-400">Selladas a Devolver</th>
+                <th className="py-2.5 px-2">Costo Botella</th>
+                <th className="py-2.5 px-3 text-right">Total a Pagar</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#221c17]">
+              {consignmentItems.map(item => (
+                <tr key={item.ingredientId} className="hover:bg-[#1a1613]">
+                  <td className="py-2.5 px-3 font-semibold text-[#f5ede2]">
+                    {item.name}
+                  </td>
+                  <td className="py-2.5 px-2 text-center font-mono font-bold text-stone-300">
+                    {item.initialStock} {item.unit.includes('botella') ? 'bot' : 'un'}
+                  </td>
+                  <td className="py-2.5 px-2 text-center font-mono font-extrabold text-rose-400 bg-rose-950/20">
+                    {item.openedPackages} {item.unit.includes('botella') ? 'bot' : 'un'}
+                  </td>
+                  <td className="py-2.5 px-2 text-center font-mono font-extrabold text-emerald-400 bg-emerald-950/20">
+                    {item.returnedPackages} {item.unit.includes('botella') ? 'bot' : 'un'}
+                  </td>
+                  <td className="py-2.5 px-2 font-mono text-[#d6c7b7]">
+                    S/. {item.packageCost.toFixed(2)}
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-mono font-bold text-white">
+                    S/. {item.totalCostToPay.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Drinks breakdown table */}
       <div className="bg-[#141210] rounded-xl border border-[#26201b] overflow-hidden">
         <div className="p-3.5 bg-[#181512] border-b border-[#26201b] flex items-center justify-between">
@@ -272,6 +404,12 @@ export const EventCloseScreen: React.FC<EventCloseScreenProps> = ({
           </button>
         </div>
       </div>
+
+      <HelpTutorialModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        defaultTopic="consignacion"
+      />
     </div>
   );
 };

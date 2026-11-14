@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { BarEvent } from '../types/bar';
-import { X, Flame, Sun, Calendar, Check, Sparkles } from 'lucide-react';
+import { X, Flame, Sun, Calendar, Check, Sparkles, Boxes, AlertTriangle, HelpCircle } from 'lucide-react';
+import { HelpTutorialModal } from './HelpTutorialModal';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -16,6 +17,9 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const [name, setName] = useState('');
   const [projectType, setProjectType] = useState<'dia' | 'evento'>('dia');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isConsignment, setIsConsignment] = useState(true);
+  const [organizerName, setOrganizerName] = useState('');
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -32,10 +36,13 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
       orders: [],
       wastes: [],
       initialIngredientsSnapshot: {},
+      isConsignment: projectType === 'evento' ? isConsignment : false,
+      organizerName: projectType === 'evento' ? organizerName.trim() : undefined,
     };
 
     onSaveEvent(newEvent);
     setName('');
+    setOrganizerName('');
     onClose();
   };
 
@@ -129,6 +136,59 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             />
           </div>
 
+          {projectType === 'evento' && (
+            <div className="p-3.5 bg-orange-50/70 border border-orange-200 rounded-2xl space-y-2.5 animate-fade-in text-xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-bold text-orange-950">
+                  <Boxes className="w-4 h-4 text-orange-600" />
+                  <span>Modalidad de Stock en Consignación</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsHelpOpen(true)}
+                  className="p-1 text-orange-700 hover:text-orange-900 transition cursor-pointer"
+                  title="Ver regla de consignación"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="consignCheck"
+                  checked={isConsignment}
+                  onChange={e => setIsConsignment(e.target.checked)}
+                  className="w-4 h-4 text-orange-600 rounded border-stone-300 focus:ring-orange-500 cursor-pointer"
+                />
+                <label htmlFor="consignCheck" className="text-stone-700 font-bold cursor-pointer">
+                  Stock entregado por Tercero / Promotor
+                </label>
+              </div>
+
+              {isConsignment && (
+                <div className="space-y-1.5 pt-1">
+                  <label className="text-[11px] font-bold text-stone-600 block">
+                    Nombre del Organizador o Promotor
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="ej: Productora Sunset / DJ Marco"
+                    value={organizerName}
+                    onChange={e => setOrganizerName(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white border border-orange-200 rounded-lg text-xs text-stone-900 focus:outline-none focus:border-orange-500"
+                  />
+                  <div className="p-2 rounded-lg bg-white/80 border border-amber-200/80 text-[10px] text-amber-900 flex items-start gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Regla de Barra:</strong> Botella abierta durante la fiesta no se devuelve y se factura al evento. Las botellas selladas al cierre se devuelven al promotor.
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="pt-2 flex items-center justify-end gap-2 border-t border-stone-100">
             <button
               type="button"
@@ -146,6 +206,12 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           </div>
         </form>
       </div>
+
+      <HelpTutorialModal
+        isOpen={isHelpOpen}
+        onClose={() => setIsHelpOpen(false)}
+        defaultTopic="consignacion"
+      />
     </div>
   );
 };

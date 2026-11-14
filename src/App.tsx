@@ -30,12 +30,15 @@ import { EventWizardModal } from './components/EventWizardModal';
 import { BusinessOnboardingModal } from './components/BusinessOnboardingModal';
 import { PublicMenuModal } from './components/PublicMenuModal';
 import { BarGuideModal } from './components/BarGuideModal';
+import { PinLockModal } from './components/PinLockModal';
 
 export default function App() {
   // Main View: 'pdv' (Barra) | 'carta_compras' (Carta & Compras) | 'ventas' (Caja & Mes) | 'preparacion' (Cocina/Prep)
   const [currentView, setCurrentView] = useState<MainAppView>('pdv');
   const [operationMode, setOperationMode] = useState<OperationMode>('dia');
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [isChangePinOpen, setIsChangePinOpen] = useState<boolean>(false);
 
   // Business B2B Profile
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(() => {
@@ -402,6 +405,20 @@ export default function App() {
     setIsTicketModalOpen(true);
   };
 
+  const handleSaveNewPin = (newPin: string) => {
+    setBusinessProfile(prev => {
+      const updated = { ...prev, accessPin: newPin };
+      try {
+        localStorage.setItem('altura_business_profile_v1', JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      syncBusinessProfileToSupabase(updated);
+      return updated;
+    });
+    setIsChangePinOpen(false);
+  };
+
   const preparingCount = activeEvent.orders.filter(o => !o.status || o.status === 'preparing').length;
 
   return (
@@ -424,6 +441,8 @@ export default function App() {
         onOpenGuide={() => setIsGuideOpen(true)}
         onOpenMenuExcel={() => setIsMenuExcelOpen(true)}
         onOpenOnboarding={() => setIsBusinessOnboardingOpen(true)}
+        onLockApp={() => setIsLocked(true)}
+        onOpenChangePin={() => setIsChangePinOpen(true)}
       />
 
       {/* Main View Area: 100% Focused, Zero Visual Clutter */}
@@ -664,6 +683,23 @@ export default function App() {
           setIsPrinterModalOpen(false);
           handlePrintOrder(testOrder);
         }}
+      />
+
+      {/* Bloqueo de Seguridad con PIN */}
+      <PinLockModal
+        isOpen={isLocked}
+        isChangeMode={false}
+        businessProfile={businessProfile}
+        onUnlock={() => setIsLocked(false)}
+      />
+
+      {/* Modal para Cambiar PIN */}
+      <PinLockModal
+        isOpen={isChangePinOpen}
+        isChangeMode={true}
+        businessProfile={businessProfile}
+        onClose={() => setIsChangePinOpen(false)}
+        onSaveNewPin={handleSaveNewPin}
       />
     </div>
   );

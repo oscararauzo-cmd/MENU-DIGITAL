@@ -38,6 +38,7 @@ export interface BusinessProfile {
   categories: BusinessCategoryConfig[];
   isConfigured: boolean;
   registeredAt?: number;
+  accessPin?: string; // PIN o contraseña de acceso (ej: 1234)
 }
 
 export type CocktailCategory = 'pisco' | 'autor' | 'clasico' | 'tapas_comida' | 'cerveza_sin_alcohol' | string;
@@ -105,4 +106,7 @@ export interface BarEvent {
   orders: Order[];
   wastes: WasteRecord[];
   initialIngredientsSnapshot: Record<string, number>; // ingredientId -> initialStock
+  isConsignment?: boolean; // Stock en consignación de terceros / promotores
+  organizerName?: string; // Nombre del promotor / tercero (ej. Productora Sunset)
+  consignmentNotes?: string;
 }
