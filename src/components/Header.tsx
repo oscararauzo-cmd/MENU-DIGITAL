@@ -20,7 +20,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 
-export type MainAppView = 'inicio' | 'resumen' | 'pdv' | 'carta_compras' | 'ventas' | 'preparacion';
+export type MainAppView = 'inicio' | 'papelera' | 'resumen' | 'pdv' | 'carta_compras' | 'ventas' | 'preparacion';
 export type OperationMode = 'dia' | 'mes' | 'evento';
 
 interface HeaderProps {
@@ -87,11 +87,11 @@ export const Header: React.FC<HeaderProps> = ({
           /><span className="hidden sm:inline text-xs font-bold text-stone-500 ml-2">Inicio</span>
         </button>
 
-        {currentView!=='inicio'&&(contextLabel==='Panorama general'?<span className="text-xs font-extrabold text-orange-800 px-3">Panorama general</span>:<button onClick={()=>onChangeView('resumen')} title="Ver resumen y configuracion" className="min-h-11 px-3 rounded-xl bg-orange-50 border border-orange-200 text-left"><span className="text-[9px] text-orange-700 font-extrabold uppercase block">{contextLabel}</span><span className="text-xs font-extrabold text-stone-900 block truncate max-w-[85px] sm:max-w-[150px] lg:max-w-[190px]">{activeEvent.name}</span></button>)}
+        {currentView!=='inicio'&&((contextLabel==='Panorama general'||currentView==='papelera')?<span className="text-xs font-extrabold text-orange-800 px-3">{currentView==='papelera'?'Papelera':'Panorama general'}</span>:<button onClick={()=>onChangeView('resumen')} title="Ver resumen y configuracion" className="min-h-11 px-3 rounded-xl bg-orange-50 border border-orange-200 text-left"><span className="text-[9px] text-orange-700 font-extrabold uppercase block">{contextLabel}</span><span className="text-xs font-extrabold text-stone-900 block truncate max-w-[85px] sm:max-w-[150px] lg:max-w-[190px]">{activeEvent.name}</span></button>)}
       </div>
 
       {/* CENTER: THE 4 ESSENTIAL VIEWS (Reduced to only essential core functions) */}
-      {currentView!=='inicio'&&contextLabel!=='Panorama general'&&<nav className="order-3 lg:order-none w-full lg:w-auto flex items-center gap-0.5 sm:gap-1 bg-stone-100 p-1 rounded-2xl border border-stone-200 overflow-x-auto scrollbar-none">
+      {currentView!=='inicio'&&currentView!=='papelera'&&contextLabel!=='Panorama general'&&<nav className="order-3 lg:order-none w-full lg:w-auto flex items-center gap-0.5 sm:gap-1 bg-stone-100 p-1 rounded-2xl border border-stone-200 overflow-x-auto scrollbar-none">
         <button
           onClick={() => onChangeView('pdv')}
           className={`min-h-11 flex-1 lg:flex-none px-1 sm:px-2.5 lg:px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
@@ -152,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* RIGHT: ONLY 2 CLEAN ACTIONS (Menú Digital + Menú Ajustes) */}
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         {/* 1. Menú Digital QR (Directo, visible y hermoso) */}
-        {currentView!=='inicio'&&contextLabel!=='Panorama general'&&(<button
+        {currentView!=='inicio'&&currentView!=='papelera'&&contextLabel!=='Panorama general'&&(<button
           onClick={onOpenPublicMenu}
           className="px-2.5 lg:px-3 py-1.5 rounded-xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-2xs"
           title="Ver cómo ven los clientes la carta con QR"

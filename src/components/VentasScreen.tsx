@@ -1,3 +1,4 @@
+import { visibleOperations } from '../utils/operationTrash';
 import { selectPeriodEvents, eventKind, limaDate, consignmentSettlement } from '../utils/operationContext';
 import React, { useState, useMemo, useEffect } from 'react';
 import { BarEvent, Cocktail, Ingredient } from '../types/bar';
@@ -54,7 +55,7 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
 
   // Pool of events based on period
   const relevantEvents = useMemo(() => {
-    return scope === 'context' ? [activeEvent] : (allEvents.length ? allEvents : [activeEvent]).filter(event=>(period==='dia'?event.date===limaDate():event.date.slice(0,7)===limaDate().slice(0,7))&&(includeEvents||event.operationType==='dia'));
+    return scope === 'context' ? visibleOperations([activeEvent]) : visibleOperations(allEvents.length ? allEvents : [activeEvent]).filter(event=>(period==='dia'?event.date===limaDate():event.date.slice(0,7)===limaDate().slice(0,7))&&(includeEvents||event.operationType==='dia'));
   }, [period, activeEvent, allEvents, includeEvents, scope]);
 
   // Aggregate orders for the period

@@ -237,17 +237,24 @@ export async function syncEventToSupabase(event: BarEvent): Promise<{ success: b
   if (!supabase) return { success: false };
 
   try {
-    const { error } = await supabase.from('events').upsert({
-      id: event.id,
-      name: event.name,
-      date: event.date,
-      status: event.status,
-      initial_ingredients_snapshot: encodeEventSnapshot(event),
-      created_at: new Date(event.createdAt).toISOString(),
-      closed_at: event.closedAt ? new Date(event.closedAt).toISOString() : null,
-    }, { onConflict: 'id' });
+    const existing = await supabase.from('events').select('status').eq('id',event.id).maybeSingle();
+    if(existing.error) throw existing.error;
+    if(existing.data?.status==='trashed'&&event.status!=='trashed') return {success:false,error:'El registro está en la papelera. Recupéralo antes de editar.'};
 
-    if (error) throw error;
+    const payload = {
+      id:event.id,name:event.name,date:event.date,status:event.status,
+      initial_ingredients_snapshot:encodeEventSnapshot(event),
+      created_at:new Date(event.createdAt).toISOString(),
+      closed_at:event.closedAt?new Date(event.closedAt).toISOString():null,
+    };
+    if(existing.data) {
+      const result=await supabase.from('events').update(payload).eq('id',event.id).eq('status',existing.data.status).select('id');
+      if(result.error)throw result.error;
+      if(!result.data?.length)return {success:false,error:'El registro cambió en otro dispositivo.'};
+    } else {
+      const result=await supabase.from('events').upsert(payload,{onConflict:'id',ignoreDuplicates:true});
+      if(result.error)throw result.error;
+    }
     return { success: true };
   } catch (err: any) {
     console.error('Error sincronizando evento a Supabase:', err);
@@ -267,6 +274,10 @@ export async function pushOrderToSupabase(order: Order, eventId: string, eventCo
       date: eventContext?.date || new Date().toISOString().split('T')[0],
       status: eventContext?.status || 'active',
     }, { onConflict: 'id', ignoreDuplicates: true });
+
+    const parent = await supabase.from('events').select('status').eq('id',eventId).maybeSingle();
+    if(parent.error) throw parent.error;
+    if(parent.data?.status==='trashed') throw new Error('El evento está en la papelera; el pedido se conserva pendiente.');
 
     const { error: orderError } = await supabase.from('orders').upsert({
       id: order.id,
@@ -399,4 +410,13 @@ export async function claimEventClose(event: BarEvent): Promise<boolean> {
   const { data, error } = await supabase.from('events').update({ status: 'closed', closed_at: new Date(event.closedAt!).toISOString(), initial_ingredients_snapshot: encodeEventSnapshot(event) }).eq('id', event.id).eq('status','active').select('id');
   if (error) throw error;
   return Boolean(data?.length);
+}
+
+export async function changeOperationTrashState(previous: BarEvent, next: BarEvent): Promise<void> {
+  if (!supabase) return;
+  let query=supabase.from('events').update({ status: next.status, initial_ingredients_snapshot: encodeEventSnapshot(next) }).eq('id',previous.id).eq('status',previous.status);
+  if(previous.status==='trashed')query=query.eq('initial_ingredients_snapshot->__altura_context->>deletedAt',String(previous.deletedAt));
+  const { data,error }=await query.select('id');
+  if (error) throw new Error('No se pudo guardar el cambio en la papelera. Revisa la conexión y vuelve a intentar.');
+  if (!data?.length) throw new Error('Este registro cambió en otro dispositivo. Espera a que se actualice y vuelve a intentar.');
 }

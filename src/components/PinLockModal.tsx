@@ -3,6 +3,7 @@ import { Lock, Unlock, KeyRound, AlertCircle, Check, X, ShieldCheck } from 'luci
 import { BusinessProfile } from '../types/bar';
 
 interface PinLockModalProps {
+  purpose?: 'system'|'trash';
   isOpen: boolean;
   isChangeMode?: boolean;
   onClose?: () => void;
@@ -12,6 +13,7 @@ interface PinLockModalProps {
 }
 
 export const PinLockModal: React.FC<PinLockModalProps> = ({
+  purpose = 'system',
   isOpen,
   isChangeMode = false,
   onClose,
@@ -120,11 +122,11 @@ export const PinLockModal: React.FC<PinLockModalProps> = ({
               {isChangeMode ? <KeyRound className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
             </div>
             <span className="text-xs uppercase font-extrabold tracking-wider text-stone-400">
-              {isChangeMode ? 'Configurar Seguridad' : 'Control de Acceso'}
+              {purpose==='trash'?'Papelera protegida':isChangeMode ? 'Configurar Seguridad' : 'Control de Acceso'}
             </span>
           </div>
 
-          {isChangeMode && onClose && (
+          {(isChangeMode||purpose==='trash') && onClose && (
             <button
               onClick={onClose}
               className="p-1 rounded-full text-stone-400 hover:text-white transition cursor-pointer"
@@ -149,7 +151,7 @@ export const PinLockModal: React.FC<PinLockModalProps> = ({
           <p className="text-xs text-stone-400 mt-0.5">
             {isChangeMode
               ? 'Ingresa el nuevo PIN de 4 dígitos para tu bar'
-              : 'Ingresa tu PIN de seguridad para acceder al sistema'}
+              : purpose==='trash'?'Ingresa el PIN del bar para recuperar jornadas o eventos':'Ingresa tu PIN de seguridad para acceder al sistema'}
           </p>
         </div>
 
@@ -236,7 +238,7 @@ export const PinLockModal: React.FC<PinLockModalProps> = ({
               className="w-full py-3.5 rounded-2xl bg-orange-600 hover:bg-orange-500 disabled:opacity-40 disabled:hover:bg-orange-600 text-white font-extrabold text-sm shadow-lg shadow-orange-600/30 flex items-center justify-center gap-2 transition active:scale-98 cursor-pointer"
             >
               <Unlock className="w-4 h-4" />
-              <span>DESBLOQUEAR SISTEMA</span>
+              <span>{purpose==='trash'?'ENTRAR A PAPELERA':'DESBLOQUEAR SISTEMA'}</span>
             </button>
           ) : (
             <button
@@ -251,7 +253,7 @@ export const PinLockModal: React.FC<PinLockModalProps> = ({
         </div>
 
         {/* Bottom Hint */}
-        {!isChangeMode && (
+        {!isChangeMode && purpose!=='trash' && (
           <p className="text-[11px] text-stone-500 text-center mt-3">
             (PIN por defecto:{' '}
             <span className="font-mono font-bold text-stone-400">1234</span>

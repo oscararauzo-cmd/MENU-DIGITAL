@@ -105,3 +105,14 @@ Esta sección prevalece sobre referencias anteriores de selectores de operación
 - Elegir productos del bar copia solo los seleccionados con IDs propios y recetas independientes. Sus ingredientes se añaden con cantidad cero, sin copiar el stock habitual. Los precios, recetas y categorías del evento se guardan en su contexto.
 - Conservar las cartas anteriores existentes; no borrar configuraciones guardadas al introducir esta separación.
 - Referencias actualizadas con datos locales de prueba: inicio-unico.png y carta-evento-independiente.png.
+
+## Gestión de jornadas y eventos y papelera
+
+- «Sin clasificar: jornadas o eventos anteriores» explica que son datos previos a la separación, no una tercera operación. Ofrecer Abrir, Editar y Eliminar también allí.
+- Las tarjetas y el resumen permiten abrir, editar nombre/fecha/organizador y enviar a papelera con confirmación dentro de la tarjeta. Editar una operación antigua permite indicar su tipo.
+- Papelera se abre desde Inicio y requiere el PIN del bar. La validación es la misma protección de interfaz que utiliza el bloqueo de la aplicación; no mostrar la clave en ese diálogo.
+- Borrado lógico: status trashed y metadatos deletedAt/trashExpiresAt/statusBeforeTrash dentro del snapshot. Conservar pedidos, carta, inventario y cierre previo.
+- Recuperación durante exactamente 5 × 24 horas. Mostrar la fecha límite en Lima; vencido el plazo, deshabilitar recuperar. No prometer purga física automática de la base de datos: el plazo controla la recuperación en la aplicación.
+- Excluir eliminados de Inicio, vistas operativas y totales. La sincronización no debe reactivar un eliminado desde una caché antigua.
+- Recuperar restaura el estado anterior sin volver a descontar stock ni transferir remanentes. Un evento cerrado se recupera cerrado.
+- Referencia con datos locales de ejemplo: papelera-recuperable.png. Pruebas de plazo y conservación en tests/operationTrash.test.mjs.

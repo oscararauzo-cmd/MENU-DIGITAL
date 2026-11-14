@@ -1,3 +1,4 @@
+import { visibleOperations } from './operationTrash.ts';
 import { recipeConsumption, sealedPresentation } from './packaging.ts';
 import type { BarEvent, Ingredient, Cocktail } from '../types/bar';
 
@@ -8,14 +9,14 @@ export function eventKind(event: BarEvent): 'dia' | 'evento' {
   return event.operationType || (event.isConsignment ? 'evento' : 'dia');
 }
 export function selectPeriodEvents(events: BarEvent[], active: BarEvent, period: 'dia' | 'mes' | 'evento', includeEvents = true, today = limaDate()) {
-  if (period === 'evento') return [active];
-  return events.filter(event => (period === 'mes' ? event.date.slice(0,7) === today.slice(0,7) : event.date === today) && (period === 'dia' || !includeEvents ? event.operationType === 'dia' : true));
+  if (period === 'evento') return visibleOperations([active]);
+  return visibleOperations(events).filter(event => (period === 'mes' ? event.date.slice(0,7) === today.slice(0,7) : event.date === today) && (period === 'dia' || !includeEvents ? event.operationType === 'dia' : true));
 }
 // Keep event metadata in the existing JSONB snapshot, preserving legacy numeric snapshots.
 // This lets older databases store isolated inventory without a schema migration.
 export function encodeEventSnapshot(event: BarEvent) {
   return { ...event.initialIngredientsSnapshot, __altura_context: {
-    version: 1, operationType: eventKind(event), isConsignment: event.isConsignment,
+    version: 1, operationType: event.operationType, deletedAt:event.deletedAt, trashExpiresAt:event.trashExpiresAt, statusBeforeTrash:event.statusBeforeTrash, isConsignment: event.isConsignment,
     organizerName: event.organizerName, consignmentNotes: event.consignmentNotes,
     inventory: event.inventory || [], recipeSnapshot: event.recipeSnapshot, menuCategories: event.menuCategories, inventorySettledAt: event.inventorySettledAt,
   } };
@@ -24,7 +25,8 @@ export function decodeEventSnapshot(raw: unknown): Partial<BarEvent> & Pick<BarE
   const snapshot = typeof raw === 'string' ? JSON.parse(raw) : raw || {};
   const { __altura_context: meta, ...stock } = snapshot as Record<string, any>;
   return { initialIngredientsSnapshot: Object.fromEntries(Object.entries(stock).filter(([,value]) => typeof value === 'number')), ...(meta?.version === 1 ? {
-    operationType: meta.operationType === 'evento' ? 'evento' : 'dia',
+    operationType: meta.operationType==='evento'?'evento':meta.operationType==='dia'?'dia':undefined,
+    deletedAt:meta.deletedAt,trashExpiresAt:meta.trashExpiresAt,statusBeforeTrash:meta.statusBeforeTrash,
     isConsignment: Boolean(meta.isConsignment), organizerName: meta.organizerName,
     consignmentNotes: meta.consignmentNotes, menuCategories: Array.isArray(meta.menuCategories) ? meta.menuCategories : undefined, recipeSnapshot: Array.isArray(meta.recipeSnapshot) ? meta.recipeSnapshot : undefined, inventory: Array.isArray(meta.inventory) ? meta.inventory : [], inventorySettledAt: meta.inventorySettledAt,
   } : {}) };

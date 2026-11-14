@@ -108,6 +108,9 @@ export interface EventInventoryLine {
 }
 
 export interface BarEvent {
+  deletedAt?: number;
+  trashExpiresAt?: number;
+  statusBeforeTrash?: 'active'|'closed';
   operationType?: 'dia' | 'evento';
   inventory?: EventInventoryLine[];
   recipeSnapshot?: Cocktail[];
@@ -116,7 +119,7 @@ export interface BarEvent {
   id: string;
   name: string;
   date: string;
-  status: 'active' | 'closed';
+  status: 'active' | 'closed' | 'trashed';
   createdAt: number;
   closedAt?: number;
   orders: Order[];
