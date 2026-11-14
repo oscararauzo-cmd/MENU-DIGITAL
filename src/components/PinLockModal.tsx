@@ -262,3 +262,4 @@ export const PinLockModal: React.FC<PinLockModalProps> = ({
     </div>
   );
 };
+
