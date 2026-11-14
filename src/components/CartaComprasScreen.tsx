@@ -1,3 +1,5 @@
+import { IngredientPackagingForm } from './IngredientPackagingForm';
+import { packageUnits, unitsInPackage, containerVolume, packagingDescription, stockDescription, presentationLabel, recipeConsumption } from '../utils/packaging';
 import { mergeImportedIngredients } from '../utils/ingredientImport';
 import React, { useState, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
@@ -84,12 +86,8 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
   );
 
   // New Insumo Creator (inside Compras tab)
+  const [editingPresentation, setEditingPresentation] = useState<string | null>(null);
   const [isCreatingIng, setIsCreatingIng] = useState(false);
-  const [newIngName, setNewIngName] = useState('');
-  const [newIngCategory, setNewIngCategory] = useState<Ingredient['category']>('licor');
-  const [newIngCost, setNewIngCost] = useState('45.00');
-  const [newIngVolume, setNewIngVolume] = useState('750');
-  const [newIngInitialStock, setNewIngInitialStock] = useState('6');
 
   // Active selected cocktail for editing
   const activeCocktail = cocktails.find(c => c.id === selectedCocktailId) || cocktails[0];
@@ -196,7 +194,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
         if (c.recipe.some(r => r.ingredientId === ingredientId)) return c;
         return {
           ...c,
-          recipe: [...c.recipe, { ingredientId, amount: 30 }],
+          recipe: [...c.recipe, { ingredientId, amount: packageUnits.has(ingredients.find(i=>i.id===ingredientId)?.unit || '') ? 1 : 30, unit: packageUnits.has(ingredients.find(i=>i.id===ingredientId)?.unit || '') ? 'unidad' as const : 'ml' as const }],
         };
       })
     );
@@ -291,35 +289,29 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
 
     setIngredients(prev => prev.some(i=>i.id===purchaseIngId) ? prev.map(i=>i.id===purchaseIngId ? {...i,currentStockUnits:i.currentStockUnits+qty,packageCost:cost>0?cost:i.packageCost} : i) : [...prev,{...targetIng,currentStockUnits:qty,initialStockUnits:qty,packageCost:cost>0?cost:targetIng.packageCost}]);
 
-    setStatusMessage(`✓ +${qty} unidades de ${targetIng.name} agregadas ${inventoryScope === 'evento' ? 'a este evento' : 'a bodega'}.`);
+    setStatusMessage(`✓ +${qty} ${presentationLabel(targetIng)}(s) de ${targetIng.name} agregadas ${inventoryScope === 'evento' ? 'a este evento' : 'a bodega'}.`);
     setTimeout(() => setStatusMessage(null), 3500);
     setPurchaseQty('6');
   };
 
-  const handleCreateIngredient = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newIngName.trim()) return;
-
-    const initialQty = parseFloat(newIngInitialStock) || 0;
-    const newIng: Ingredient = {
-      id: `ing-${Date.now()}`,
-      name: newIngName.trim(),
-      category: newIngCategory,
-      unit: newIngCategory === 'otro' ? 'unidad' : 'botella_750ml',
-      packageCost: parseFloat(newIngCost) || 35,
-      volumePerUnitMl: parseFloat(newIngVolume) || 750,
-      initialStockUnits: initialQty,
-      currentStockUnits: initialQty,
-      minAlertUnits: 2,
-    };
-
-    setIngredients(prev => [newIng, ...prev]);
-    setPurchaseIngId(newIng.id);
-    setPurchaseUnitCost(newIng.packageCost.toString());
-    setNewIngName('');
+  const saveNewIngredient = (created: Ingredient) => {
+    const existing = [...ingredients,...ingredientCatalog].find(i=>i.name.trim().toLocaleLowerCase()===created.name.trim().toLocaleLowerCase());
+    const ingredient = {...created,id:existing?.id || created.id};
+    setIngredients(previous=>mergeImportedIngredients(previous,[ingredient]));
+    setPurchaseIngId(ingredient.id);
+    setPurchaseUnitCost(String(ingredient.packageCost));
     setIsCreatingIng(false);
-    setStatusMessage(`✓ Nuevo insumo "${newIng.name}" guardado en bodega.`);
-    setTimeout(() => setStatusMessage(null), 3000);
+    setStatusMessage(`✓ ${ingredient.name} guardado. ${stockDescription(ingredient)}`);
+  };
+
+  const savePresentation = (ingredient:Ingredient) => {
+    const previous=ingredients.find(i=>i.id===ingredient.id);
+    // Legacy count-based recipes (e.g. 1 beer) remain count-based after grouping into packs.
+    if(previous?.volumePerUnitMl===1&&ingredient.volumePerUnitMl!==1) {
+      setCocktails(current=>current.map(c=>({...c,recipe:c.recipe.map(r=>r.ingredientId===ingredient.id&&!r.unit?{...r,unit:'unidad' as const}:r)})));
+    }
+    setIngredients(current=>current.map(i=>i.id===ingredient.id?ingredient:i));
+    setEditingPresentation(null);
   };
 
   const handleUpdateIngredientQuick = (id: string, updates: Partial<Ingredient>) => {
@@ -348,7 +340,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
       const recipeText = c.recipe
         .map(r => {
           const ing = ingredients.find(i => i.id === r.ingredientId);
-          return `${ing?.name || 'Insumo'} (${r.amount}${ing?.category === 'otro' ? 'un' : 'ml'})`;
+          return `${ing?.name || 'Insumo'} (${r.amount}${r.unit==='unidad'?' un':' ml'})`;
         })
         .join(', ');
 
@@ -386,6 +378,9 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
       'Rinde (ml/un)',
       'Stock Actual',
       'Stock Mínimo',
+      'Envases por paquete',
+      'Contenido por envase (ml)',
+      'Envase interior',
     ];
     const ingRows = ingredients.map(i => [
       i.name,
@@ -395,6 +390,9 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
       i.volumePerUnitMl,
       i.currentStockUnits,
       i.minAlertUnits,
+      unitsInPackage(i),
+      containerVolume(i),
+      i.containerType || '',
     ]);
     const wsIng = XLSX.utils.aoa_to_sheet([ingHeaders, ...ingRows]);
     wsIng['!cols'] = [
@@ -452,6 +450,9 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
         const costIdx = headers.findIndex(h => h.includes('costo') || h.includes('precio'));
         const volumeIdx = headers.findIndex(h => h.includes('rinde') || h.includes('ml') || h.includes('volumen'));
         const stockIdx = headers.findIndex(h => h.includes('stock actual') || h.includes('stock') || h.includes('cantidad'));
+        const countIdx = headers.findIndex(h=>h.includes('envases por paquete')||h.includes('unidades por paquete')||h.includes('botellas por paquete'));
+        const containerTypeIdx = headers.findIndex(h=>h.includes('envase interior'));
+        const containerIdx = headers.findIndex(h=>h.includes('contenido por envase')||h.includes('ml por botella'));
         const minIdx = headers.findIndex(h => h.includes('mínimo') || h.includes('min') || h.includes('alerta'));
 
         const parsedIngredients: Ingredient[] = [];
@@ -476,7 +477,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
             : 'licor';
 
           const rawUnit = unitIdx !== -1 ? String(row[unitIdx] || '').toLowerCase() : 'botella_750ml';
-          const unit: Ingredient['unit'] = rawUnit.includes('1000') || rawUnit.includes('1l')
+          const unit: Ingredient['unit'] = rawUnit.includes('six') ? 'sixpack' : rawUnit.includes('paquete')||rawUnit.includes('pack') ? 'paquete' : rawUnit.includes('caja') ? 'caja' : rawUnit.includes('1000') || rawUnit.includes('1l')
             ? 'botella_1000ml'
             : rawUnit.includes('litro')
             ? 'litro'
@@ -505,13 +506,17 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
           const existing = ingredients.find(ing => ing.name.toLowerCase() === name.toLowerCase());
           const id = existing?.id || `ing-${Date.now()}-${i}`;
 
+          const packageCount = countIdx!==-1 ? Math.max(1,Math.floor(Number(row[countIdx])||1)) : unit==='sixpack'?6:1;
+          const perContainer = containerIdx!==-1 ? Number(row[containerIdx]) : 0;
           parsedIngredients.push({
             id,
             name,
             category,
             unit,
             packageCost,
-            volumePerUnitMl,
+            volumePerUnitMl: perContainer>0 ? packageCount*perContainer : volumePerUnitMl,
+            ...(containerTypeIdx!==-1&&['botella','lata'].includes(String(row[containerTypeIdx]).toLowerCase())?{containerType:String(row[containerTypeIdx]).toLowerCase() as 'botella'|'lata'}:{}),
+            ...(countIdx!==-1||perContainer>0||unit==='sixpack'?{unitsPerPackage:packageCount,volumePerContainerMl:perContainer>0?perContainer:volumePerUnitMl/packageCount}:{}),
             initialStockUnits: currentStockUnits,
             currentStockUnits,
             minAlertUnits,
@@ -1106,7 +1111,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                       activeCocktail.recipe.map(item => {
                         const ing = ingredients.find(i => i.id === item.ingredientId);
                         const costPerMl = ing ? getIngredientCostPerMl(ing) : 0;
-                        const itemCost = costPerMl * item.amount;
+                        const itemCost = costPerMl * recipeConsumption(item,ing);
 
                         return (
                           <div
@@ -1134,9 +1139,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                                   }
                                   className="w-12 font-mono font-bold text-stone-900 text-right focus:outline-none"
                                 />
-                                <span className="text-[10px] text-stone-500 font-bold">
-                                  {ing?.category === 'otro' ? 'un' : 'ml'}
-                                </span>
+                                <select aria-label={`Medida de ${ing?.name}`} value={item.unit || (ing?.volumePerUnitMl===1?'unidad':'ml')} onChange={e=>{const unit=e.target.value as 'ml'|'unidad';setCocktails(previous=>previous.map(c=>c.id===activeCocktail.id?{...c,recipe:c.recipe.map(r=>r.ingredientId===item.ingredientId?{...r,unit}:r)}:c));}} className="min-h-11 text-xs font-bold bg-white"><option value="ml">ml</option><option value="unidad">unidades</option></select>
                               </div>
 
                               <span className="font-mono font-bold text-stone-700 w-16 text-right">
@@ -1194,52 +1197,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
               </button>
             </div>
 
-            {isCreatingIng && (
-              <form
-                onSubmit={handleCreateIngredient}
-                className="p-4 rounded-2xl bg-orange-50/70 border border-orange-200 grid grid-cols-1 sm:grid-cols-5 gap-2.5 text-xs"
-              >
-                <div className="sm:col-span-2">
-                  <label className="font-bold text-orange-950 block mb-1">Nombre del Insumo</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="ej: Ron Cartavio Black, Hielo..."
-                    value={newIngName}
-                    onChange={e => setNewIngName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-stone-300 rounded-xl"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-orange-950 block mb-1">Costo Botella (S/.)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={newIngCost}
-                    onChange={e => setNewIngCost(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-stone-300 rounded-xl font-mono font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-orange-950 block mb-1">Rinde (ml o un)</label>
-                  <input
-                    type="number"
-                    step="10"
-                    value={newIngVolume}
-                    onChange={e => setNewIngVolume(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-stone-300 rounded-xl font-mono font-bold"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <button
-                    type="submit"
-                    className="w-full py-1.5 px-3 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold cursor-pointer"
-                  >
-                    + Guardar
-                  </button>
-                </div>
-              </form>
-            )}
+            {isCreatingIng && <IngredientPackagingForm onSave={saveNewIngredient} onCancel={()=>setIsCreatingIng(false)} />}
 
             <form onSubmit={handleRegisterPurchase} className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2">
               <div className="sm:col-span-2">
@@ -1255,14 +1213,14 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                 >
                   {purchaseOptions.map(ing => (
                     <option key={ing.id} value={ing.id}>
-                      {ing.name} (Stock: {ing.currentStockUnits})
+                      {ing.name} · {presentationLabel(ing)} · Stock: {Number(ing.currentStockUnits.toFixed(3))}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-bold text-stone-700 block mb-1">{inventoryScope === 'evento' ? 'Cantidad recibida' : 'Cantidad Comprada'}</label>
+                <label className="text-xs font-bold text-stone-700 block mb-1">{`Cantidad de ${purchaseOptions.find(i=>i.id===purchaseIngId)?presentationLabel(purchaseOptions.find(i=>i.id===purchaseIngId)!):'presentaciones'}(s)`}</label>
                 <input
                   type="number"
                   step="1"
@@ -1273,7 +1231,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-bold text-stone-700 block mb-1">Costo Unitario (S/.)</label>
+                <label className="text-xs font-bold text-stone-700 block mb-1">Costo por presentación (S/)</label>
                 <input
                   type="number"
                   step="0.5"
@@ -1316,9 +1274,8 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                 >
                   <div className="min-w-[160px] flex-1">
                     <p className="font-bold text-stone-900">{ing.name}</p>
-                    <p className="text-[10px] text-stone-400">
-                      Rinde {ing.volumePerUnitMl} ml · {ing.unit}
-                    </p>
+                    <p className="text-[10px] text-stone-500">{packagingDescription(ing)}</p>
+                    <p className="text-[11px] font-bold text-orange-700 mt-1">{stockDescription(ing)}</p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
@@ -1338,7 +1295,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1 bg-white border border-stone-200 rounded-xl px-2 py-1">
-                      <span className="text-[10px] text-stone-400">Stock:</span>
+                      <span className="text-[10px] text-stone-400">{presentationLabel(ing)}(s):</span>
                       <input
                         type="number"
                         step="1"
@@ -1352,6 +1309,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                       />
                     </div>
 
+                    <button type="button" onClick={()=>setEditingPresentation(editingPresentation===ing.id?null:ing.id)} className="min-h-11 px-3 rounded-xl border border-orange-200 text-orange-800 font-bold">Presentación</button>
                     {deletingIngredient === ing.id ? <div className="w-full sm:max-w-sm rounded-2xl border border-rose-200 bg-rose-50 p-3 space-y-2">
                       <p className="text-xs font-bold text-rose-900">¿Eliminar {ing.name} del inventario?</p>
                       {cocktails.some(c => c.recipe.some(r => r.ingredientId === ing.id)) && <p className="text-xs leading-relaxed text-rose-800">Se quitará de las recetas de <strong>{cocktails.filter(c => c.recipe.some(r => r.ingredientId === ing.id)).map(c => c.name).join(', ')}</strong>. Esos productos se pausarán hasta que revises sus recetas. Los pedidos anteriores y los inventarios propios de eventos se conservan.</p>}
@@ -1371,6 +1329,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
                       {ing.currentStockUnits <= ing.minAlertUnits ? '⚠️ Reponer' : '✓ Suficiente'}
                     </span>
                   </div>
+                  {editingPresentation===ing.id&&<div className="w-full"><IngredientPackagingForm ingredient={ing} onSave={savePresentation} onCancel={()=>setEditingPresentation(null)} /></div>}
                 </div>
               ))}
             </div>

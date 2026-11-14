@@ -1,20 +1,24 @@
 export type IngredientCategory = 'licor' | 'mezclador' | 'fruta_jarabe' | 'comida_insumo' | 'guarnicion' | 'otro';
 
-export type IngredientUnit = 'botella_750ml' | 'botella_1000ml' | 'botella_700ml' | 'lata_355ml' | 'botella_200ml' | 'litro' | 'kg' | 'unidad';
+export type IngredientUnit = 'sixpack' | 'paquete' | 'caja' | 'botella' | 'lata' | 'botella_750ml' | 'botella_1000ml' | 'botella_700ml' | 'lata_355ml' | 'botella_200ml' | 'litro' | 'kg' | 'unidad';
 
 export interface Ingredient {
+  unitsPerPackage?: number;
+  containerType?: 'botella' | 'lata';
+  volumePerContainerMl?: number;
   id: string;
   name: string;
   category: IngredientCategory;
   unit: IngredientUnit;
   packageCost: number; // Costo por envase o unidad comprada en S/.
-  volumePerUnitMl: number; // ml o unidades que rinde el envase
-  initialStockUnits: number; // Stock al inicio del evento
-  currentStockUnits: number; // Stock calculado actual
+  volumePerUnitMl: number; // rendimiento total de la presentación: unidades internas × contenido
+  initialStockUnits: number; // Presentaciones al inicio (botellas, six-packs, paquetes o cajas)
+  currentStockUnits: number; // Presentaciones restantes equivalentes, incluyendo remanentes abiertos
   minAlertUnits: number; // Alerta de stock mínimo
 }
 
 export interface RecipeItem {
+  unit?: 'ml' | 'unidad';
   ingredientId: string;
   amount: number; // ml o unidades por trago
 }

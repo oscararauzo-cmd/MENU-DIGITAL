@@ -1,4 +1,5 @@
-import { Cocktail, Ingredient, BarEvent, WasteRecord } from '../types/bar';
+import { recipeConsumption } from './packaging.ts';
+import type { Cocktail, Ingredient, BarEvent, WasteRecord } from '../types/bar';
 
 export function getIngredientCostPerMl(ingredient: Ingredient): number {
   if (!ingredient.volumePerUnitMl || ingredient.volumePerUnitMl <= 0) return 0;
@@ -13,7 +14,7 @@ export function calculateCocktailUnitCost(cocktail: Cocktail, ingredients: Ingre
     const ing = ingMap.get(item.ingredientId);
     if (ing) {
       const costPerUnit = getIngredientCostPerMl(ing);
-      totalCost += costPerUnit * item.amount;
+      totalCost += costPerUnit * recipeConsumption(item, ing);
     }
   }
 
@@ -187,7 +188,7 @@ export function calculateEventMetrics(
       if (cocktail) {
         for (const recipeItem of cocktail.recipe) {
           const prev = ingConsumedMap.get(recipeItem.ingredientId) || 0;
-          ingConsumedMap.set(recipeItem.ingredientId, prev + (recipeItem.amount * item.quantity));
+          ingConsumedMap.set(recipeItem.ingredientId, prev + (recipeConsumption(recipeItem, ingMap.get(recipeItem.ingredientId)) * item.quantity));
         }
       }
     }

@@ -1,3 +1,4 @@
+import { convertPresentationQuantity } from './packaging.ts';
 import type { Ingredient, BarEvent } from '../types/bar';
 
 export function mergeImportedIngredients(existing: Ingredient[], incoming: Ingredient[]): Ingredient[] {
@@ -17,7 +18,7 @@ export function updateEventInventory(event: BarEvent, current: Ingredient[], nex
     const id = canonical?.id || ingredient.id;
     const prior = event.inventory?.find(line => line.ingredient.id === id);
     const before = current.find(item => item.id === id);
-    const receivedUnits = prior ? Math.max(0, prior.receivedUnits + ingredient.currentStockUnits - (before?.currentStockUnits || 0)) : ingredient.currentStockUnits;
+    const receivedUnits = prior ? Math.max(0, ingredient.currentStockUnits + convertPresentationQuantity(prior.receivedUnits - (before?.currentStockUnits || 0), prior.ingredient, ingredient)) : ingredient.currentStockUnits;
     return { ingredient: { ...ingredient, id }, receivedUnits, openedUnits: prior?.openedUnits || 0 };
   });
 }

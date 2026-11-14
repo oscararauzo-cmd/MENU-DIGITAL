@@ -80,3 +80,15 @@ Antes de modificar una pantalla, revisar estas referencias y conservar sus color
 - Los cambios se guardan sin salir de Carta & Compras. Carta e inventario del evento permanecen separados del bar.
 - Importar un insumo existente conserva su ID para mantener los vínculos con recetas. Las filas nuevas que coinciden con el catálogo del bar usan su identidad, conservando cantidades independientes.
 - `carta-compras-evento.png` muestra el aumento manual y las herramientas Excel, con datos de prueba.
+
+## Presentaciones y contenido de insumos
+
+- Conservar todas las funciones de Carta & Compras. Crear insumo y el botón Presentación de cada fila usan el mismo formulario.
+- Diferenciar cantidad de presentaciones, envases interiores (botellas o latas), contenido por envase y costo por presentación.
+- Ejemplo: 3 six-packs × 6 botellas × 330 ml = 18 botellas y 5.94 L. El rendimiento total de un six-pack es 1980 ml, no 330 ml.
+- Las recetas pueden usar ml o unidades interiores. Una unidad de cerveza descuenta una botella/lata, no un six-pack completo.
+- Consignación se liquida por presentación sellada: abrir un six-pack, paquete o caja invalida su devolución completa, aunque las botellas interiores estén cerradas. Permitir confirmar aperturas adicionales sin ventas.
+- Al pasar remanentes al bar, convertir de la presentación del evento a la presentación del bar; no sumar fracciones de six-pack como si fueran botellas.
+- Excel agrega Envases por paquete, Contenido por envase (ml) y Envase interior. Mantener compatibilidad con los archivos anteriores.
+- En Supabase, la presentación con su contenido se codifica con versión 1 dentro de la columna TEXT unit existente; leer también unidades históricas sin metadatos. Los snapshots de eventos conservan los campos completos.
+- `insumo-sixpack.png` muestra una prueba local de esta presentación.

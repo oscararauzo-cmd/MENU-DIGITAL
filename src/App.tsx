@@ -1,3 +1,4 @@
+import { recipeConsumption, convertPresentationQuantity } from './utils/packaging';
 import { updateEventInventory } from './utils/ingredientImport';
 import { OperationsDashboard, OperationOverview } from './components/OperationsDashboard';
 import { eventKind, eventInventory, consignmentSettlement, limaDate } from './utils/operationContext';
@@ -382,7 +383,7 @@ export default function App() {
     if (activeEvent.status === 'closed') throw new Error('Este registro está cerrado. Abre una jornada o evento desde Inicio.');
     if (isSpecialEvent) {
       const required = new Map<string,number>();
-      for (const item of newOrder.items) for (const recipe of activeCocktails.find(c=>c.id===item.cocktailId)?.recipe || []) required.set(recipe.ingredientId,(required.get(recipe.ingredientId)||0)+recipe.amount*item.quantity);
+      for (const item of newOrder.items) for (const recipe of activeCocktails.find(c=>c.id===item.cocktailId)?.recipe || []) required.set(recipe.ingredientId,(required.get(recipe.ingredientId)||0)+recipeConsumption(recipe,activeIngredients.find(i=>i.id===recipe.ingredientId))*item.quantity);
       for (const [id, amount] of required) {
         const ingredient=activeIngredients.find(i=>i.id===id);
         if (!ingredient || ingredient.currentStockUnits * ingredient.volumePerUnitMl + 1e-8 < amount) throw new Error(`No hay suficiente ${ingredient?.name || 'stock asignado'} en este evento. Revisa sus insumos.`);
@@ -410,7 +411,7 @@ export default function App() {
       if (!cocktail) continue;
       for (const r of cocktail.recipe) {
         const prevAmt = consumedByIng.get(r.ingredientId) || 0;
-        consumedByIng.set(r.ingredientId, prevAmt + r.amount * item.quantity);
+        consumedByIng.set(r.ingredientId, prevAmt + recipeConsumption(r,activeIngredients.find(i=>i.id===r.ingredientId)) * item.quantity);
       }
     }
 
@@ -422,7 +423,7 @@ export default function App() {
           const usedUnits = usedAmount / ing.volumePerUnitMl;
           return {
             ...ing,
-            currentStockUnits: Number(Math.max(0, ing.currentStockUnits - usedUnits).toFixed(2)),
+            currentStockUnits: Number(Math.max(0, ing.currentStockUnits - usedUnits).toFixed(6)),
           };
         })
       );
@@ -449,10 +450,10 @@ export default function App() {
         const returned = new Map<string, number>();
         for (const item of order.items) {
           for (const recipe of cocktails.find(c => c.id === item.cocktailId)?.recipe || []) {
-            returned.set(recipe.ingredientId, (returned.get(recipe.ingredientId) || 0) + recipe.amount * item.quantity);
+            returned.set(recipe.ingredientId, (returned.get(recipe.ingredientId) || 0) + recipeConsumption(recipe,activeIngredients.find(i=>i.id===recipe.ingredientId)) * item.quantity);
           }
         }
-        setIngredients(prev => prev.map(ing => ing.volumePerUnitMl > 0 && returned.has(ing.id) ? { ...ing, currentStockUnits: Number((ing.currentStockUnits + returned.get(ing.id)! / ing.volumePerUnitMl).toFixed(2)) } : ing));
+        setIngredients(prev => prev.map(ing => ing.volumePerUnitMl > 0 && returned.has(ing.id) ? { ...ing, currentStockUnits: Number((ing.currentStockUnits + returned.get(ing.id)! / ing.volumePerUnitMl).toFixed(6)) } : ing));
       }
     } finally { pendingOrders.current.delete(orderId); }
   };
@@ -509,7 +510,7 @@ export default function App() {
       if (target.isConsignment && !target.inventorySettledAt) {
         setIngredients(previous=>previous.map(ingredient=>{
           const line=lines.find(l=>l.ingredient.id===ingredient.id);
-          return line ? {...ingredient,currentStockUnits:Number((ingredient.currentStockUnits+line.retainedUnits).toFixed(4))} : ingredient;
+          return line ? {...ingredient,currentStockUnits:Number((ingredient.currentStockUnits+convertPresentationQuantity(line.retainedUnits,line.ingredient,ingredient)).toFixed(6))} : ingredient;
         }).concat(lines.filter(line=>!previous.some(i=>i.id===line.ingredient.id)&&line.retainedUnits>0).map(line=>({...line.ingredient,currentStockUnits:line.retainedUnits,initialStockUnits:line.retainedUnits}))));
       }
       setEvents(previous=>previous.map(event=>event.id===eventId?closed:event));

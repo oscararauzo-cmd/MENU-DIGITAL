@@ -1,3 +1,4 @@
+import { recipeConsumption, sealedPresentation } from './packaging.ts';
 import type { BarEvent, Ingredient, Cocktail } from '../types/bar';
 
 export function limaDate(date = new Date()) {
@@ -31,7 +32,7 @@ export function decodeEventSnapshot(raw: unknown): Partial<BarEvent> & Pick<BarE
 export function eventInventory(event: BarEvent, cocktails: Cocktail[]): Ingredient[] {
   const consumed = new Map<string, number>();
   for (const order of event.orders) for (const item of order.items) {
-    for (const recipe of (event.recipeSnapshot || cocktails).find(c => c.id === item.cocktailId)?.recipe || []) consumed.set(recipe.ingredientId, (consumed.get(recipe.ingredientId) || 0) + recipe.amount * item.quantity);
+    for (const recipe of (event.recipeSnapshot || cocktails).find(c => c.id === item.cocktailId)?.recipe || []) consumed.set(recipe.ingredientId, (consumed.get(recipe.ingredientId) || 0) + recipeConsumption(recipe, event.inventory?.find(line=>line.ingredient.id===recipe.ingredientId)?.ingredient) * item.quantity);
   }
   for (const waste of event.wastes) if (waste.ingredientId) {
     const line = event.inventory?.find(l => l.ingredient.id === waste.ingredientId);
@@ -44,7 +45,7 @@ export function consignmentSettlement(event: BarEvent, cocktails: Cocktail[]) {
   const stock = eventInventory(event, cocktails);
   return (event.inventory || []).map((line, index) => {
     const used = line.receivedUnits - stock[index].currentStockUnits;
-    const minimumOpened = line.ingredient.unit.startsWith('botella') ? Math.ceil(used - 1e-8) : used;
+    const minimumOpened = sealedPresentation(line.ingredient) ? Math.ceil(used - 1e-8) : used;
     const opened = Math.max(line.openedUnits || 0, minimumOpened);
     return { ...line, usedUnits: used, openedUnits: opened, sealedReturnedUnits: Math.max(0, line.receivedUnits - opened), retainedUnits: Math.max(0, opened - used), cost: opened * line.ingredient.packageCost, valid: opened <= line.receivedUnits };
   });

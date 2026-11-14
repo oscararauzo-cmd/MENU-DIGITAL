@@ -1,3 +1,4 @@
+import { presentationLabel, packagingDescription, sealedPresentation } from '../utils/packaging';
 import React, { useState } from 'react';
 import { BarEvent, Ingredient, Cocktail } from '../types/bar';
 import { X, Flame, Sun, Calendar, Check, Sparkles, Boxes, AlertTriangle, HelpCircle } from 'lucide-react';
@@ -203,7 +204,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             <legend className="text-sm font-extrabold">Insumos exclusivos de este evento</legend>
             <p className="text-xs text-stone-500">Registra lo que ingresa para esta fecha. No se sumará al inventario habitual del bar.</p>
             <div className="max-h-56 overflow-y-auto divide-y divide-stone-100 border border-stone-200 rounded-2xl">
-              {ingredients.map(ingredient => <label key={ingredient.id} className="p-3 flex items-center gap-3 justify-between text-xs"><span className="font-bold">{ingredient.name}<small className="block text-stone-500 font-normal">{ingredient.unit} · S/ {ingredient.packageCost.toFixed(2)}</small></span><input aria-label={`Cantidad de ${ingredient.name}`} type="number" min="0" step={ingredient.unit.startsWith('botella') ? '1' : '0.01'} value={quantities[ingredient.id] || ''} onChange={e => setQuantities(previous => ({...previous,[ingredient.id]:Math.max(0,Number(e.target.value))}))} placeholder="0" className="w-20 min-h-12 rounded-xl border border-stone-200 px-3 font-mono text-right" /></label>)}
+              {ingredients.map(ingredient => <label key={ingredient.id} className="p-3 flex items-center gap-3 justify-between text-xs"><span className="font-bold">{ingredient.name}<small className="block text-stone-500 font-normal">{packagingDescription(ingredient)} · S/ {ingredient.packageCost.toFixed(2)} por {presentationLabel(ingredient)}</small></span><input aria-label={`Cantidad de ${ingredient.name}`} type="number" min="0" step={sealedPresentation(ingredient) ? '1' : '0.01'} value={quantities[ingredient.id] || ''} onChange={e => setQuantities(previous => ({...previous,[ingredient.id]:Math.max(0,Number(e.target.value))}))} placeholder="0" className="w-20 min-h-12 rounded-xl border border-stone-200 px-3 font-mono text-right" /></label>)}
             </div>
           </fieldset>}
 

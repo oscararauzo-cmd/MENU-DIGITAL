@@ -1,3 +1,4 @@
+import { encodeIngredientUnit, decodeIngredientUnit } from '../utils/packaging';
 import { encodeEventSnapshot, decodeEventSnapshot } from '../utils/operationContext';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -79,7 +80,7 @@ export async function fetchInitialStateFromSupabase(): Promise<LoadedSupabaseSta
         id: i.id,
         name: i.name,
         category: i.category,
-        unit: i.unit,
+        ...decodeIngredientUnit(i.unit),
         packageCost: Number(i.package_cost),
         volumePerUnitMl: Number(i.volume_per_unit_ml),
         initialStockUnits: Number(i.initial_stock_units),
@@ -214,7 +215,7 @@ export async function syncIngredientsToSupabase(ingredients: Ingredient[]): Prom
       id: i.id,
       name: i.name,
       category: i.category,
-      unit: i.unit,
+      unit: encodeIngredientUnit(i),
       package_cost: i.packageCost,
       volume_per_unit_ml: i.volumePerUnitMl,
       initial_stock_units: i.initialStockUnits,
