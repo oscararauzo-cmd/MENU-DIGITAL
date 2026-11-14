@@ -286,17 +286,23 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
           </span>
         </div>
 
-        <label className="block text-xs font-semibold text-stone-600">
-          Forma de pago
-          <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as PaymentMethod)} className="mt-1 w-full rounded-xl border border-stone-300 bg-white p-3 text-stone-900">
-            <option value="efectivo">Efectivo</option>
-            <option value="yape_plin">Yape / Plin</option>
-            <option value="tarjeta">Tarjeta</option>
-            <option value="cortesia">Cortesía</option>
-          </select>
-        </label>
+        <fieldset>
+          <legend className="mb-2 text-[10px] uppercase tracking-wider font-extrabold text-stone-500">Forma de pago</legend>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { id: 'yape_plin', label: 'Yape / Plin', icon: Smartphone, color: 'bg-[#702082] border-[#702082] text-white shadow-purple-900/20' },
+              { id: 'tarjeta', label: 'Tarjeta / POS', icon: CreditCard, color: 'bg-[#0f4c81] border-[#0f4c81] text-white shadow-blue-900/20' },
+              { id: 'efectivo', label: 'Efectivo', icon: Coins, color: 'bg-emerald-600 border-emerald-600 text-white shadow-emerald-700/20' },
+              { id: 'cortesia', label: 'Cortesía', icon: Gift, color: 'bg-purple-950 border-purple-950 text-amber-300' },
+            ] as const).map(method => <button key={method.id} type="button" aria-pressed={paymentMethod === method.id}
+              onClick={() => setPaymentMethod(method.id)}
+              className={`min-h-12 rounded-2xl border-2 px-2 py-2.5 text-xs font-extrabold flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer ${method.color} ${paymentMethod === method.id ? 'shadow-md ring-2 ring-offset-2 ring-orange-400' : 'opacity-80 hover:opacity-100'}`}>
+              <method.icon className="w-4 h-4 shrink-0" />{method.label}
+            </button>)}
+          </div>
+        </fieldset>
         <button onClick={() => handleExecuteOrder(paymentMethod)} disabled={totalCount === 0}
-          className="w-full min-h-12 rounded-xl bg-orange-600 p-3 font-bold text-white disabled:bg-stone-200 disabled:text-stone-400">
+          className="w-full min-h-12 rounded-2xl bg-orange-600 hover:bg-orange-700 p-3 font-extrabold text-white shadow-sm shadow-orange-500/20 transition active:scale-[0.98] disabled:bg-stone-200 disabled:text-stone-400 disabled:shadow-none">
           Enviar a preparación
         </button>
       </div>
@@ -307,7 +313,7 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
     <div className="flex-1 min-h-0 h-full flex flex-col md:flex-row bg-[#faf8f5] text-stone-900 overflow-hidden relative font-sans">
       {/* Toast Notification */}
       {lastNotification && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-full bg-stone-900 text-amber-300 text-xs sm:text-sm font-extrabold shadow-2xl animate-bounce flex items-center gap-2 border border-orange-500 whitespace-nowrap">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md z-50 px-5 py-2.5 rounded-full bg-stone-900 text-amber-300 text-xs sm:text-sm font-extrabold shadow-2xl animate-bounce flex items-center gap-2 border border-orange-500">
           <Sparkles className="w-4 h-4 text-orange-400" />
           <span>{lastNotification}</span>
         </div>
@@ -508,56 +514,10 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
           <ChevronUp className="w-4 h-4 text-orange-600 shrink-0" />
         </button>
 
-        {/* Right: Quick 1-Tap Pay Buttons (when items > 0) or Ver Comanda */}
-        {totalCount > 0 ? (
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-            <button
-              onClick={() => handleExecuteOrder('yape_plin')}
-              className="h-10 px-3 rounded-xl bg-[#702082] hover:bg-[#591768] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer shrink-0"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>Yape</span>
-            </button>
-
-            <button
-              onClick={() => handleExecuteOrder('tarjeta')}
-              className="h-10 px-3 rounded-xl bg-[#0f4c81] hover:bg-[#0b3861] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer shrink-0"
-            >
-              <CreditCard className="w-3.5 h-3.5" />
-              <span>Tarjeta</span>
-            </button>
-
-            <button
-              onClick={() => handleExecuteOrder('efectivo')}
-              className="h-10 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer shrink-0"
-            >
-              <Coins className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline sm:inline">Efectivo</span>
-            </button>
-
-            <button
-              onClick={() => {
-                if (isComandaCollapsed) setIsComandaCollapsed(false);
-                else setIsMobilePopupOpen(true);
-              }}
-              className="h-10 px-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
-            >
-              <span>Ver</span>
-              <ChevronUp className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => {
-              if (isComandaCollapsed) setIsComandaCollapsed(false);
-              else setIsMobilePopupOpen(true);
-            }}
-            className="h-9 px-3.5 rounded-xl bg-stone-900 text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 cursor-pointer shrink-0"
-          >
-            <Receipt className="w-3.5 h-3.5" />
-            <span>Abrir Comanda</span>
-          </button>
-        )}
+        <button onClick={() => { if (isComandaCollapsed) setIsComandaCollapsed(false); else setIsMobilePopupOpen(true); }}
+          className="min-h-12 px-4 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs flex items-center gap-2 active:scale-95 cursor-pointer shrink-0 shadow-sm shadow-orange-500/20">
+          <Receipt className="w-4 h-4" /><span>{totalCount > 0 ? 'Revisar pedido' : 'Abrir comanda'}</span>
+        </button>
       </div>
 
       {/* ==================================================================== */}
@@ -570,7 +530,7 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
         >
           <div
             onClick={e => e.stopPropagation()}
-            className="w-full max-w-md max-h-[85dvh] bg-white rounded-3xl shadow-2xl border border-stone-200 flex flex-col overflow-hidden"
+            className="w-full max-w-md h-[90dvh] max-h-[90dvh] bg-white rounded-3xl shadow-2xl border border-stone-200 flex flex-col overflow-hidden"
           >
             {renderComandaBody(() => setIsMobilePopupOpen(false), 'Cerrar pop-up de comanda')}
           </div>

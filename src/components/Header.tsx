@@ -92,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
   const CurrentModeIcon = modeLabels[operationMode].icon;
 
   return (
-    <header className="px-3 sm:px-5 py-2 flex items-center justify-between gap-2 border-b border-stone-200 bg-white sticky top-0 z-30 select-none shadow-2xs font-sans shrink-0">
+    <header className="px-3 sm:px-5 py-2 flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 border-b border-stone-200 bg-white sticky top-0 z-30 select-none shadow-2xs font-sans shrink-0">
       {/* LEFT: Brand Logo + Operation Mode Selector (Día a Día / Mes / Evento) */}
       <div className="flex items-center gap-2 min-w-0 shrink-0">
         <button
@@ -116,7 +116,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <CurrentModeIcon className="w-3.5 h-3.5 text-orange-600 shrink-0" />
             <div className="min-w-0">
-              <span className="text-xs font-extrabold text-stone-900 block truncate max-w-[90px] lg:max-w-[160px] leading-tight">
+              <span className="text-xs font-extrabold text-stone-900 block truncate max-w-[60px] sm:max-w-[90px] lg:max-w-[160px] leading-tight">
                 {modeLabels[operationMode].label}
               </span>
             </div>
@@ -228,10 +228,10 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* CENTER: THE 4 ESSENTIAL VIEWS (Reduced to only essential core functions) */}
-      <nav className="flex items-center gap-0.5 sm:gap-1 bg-stone-100 p-1 rounded-2xl border border-stone-200 overflow-x-auto scrollbar-none">
+      <nav className="order-3 lg:order-none w-full lg:w-auto flex items-center gap-0.5 sm:gap-1 bg-stone-100 p-1 rounded-2xl border border-stone-200 overflow-x-auto scrollbar-none">
         <button
           onClick={() => onChangeView('pdv')}
-          className={`px-2.5 lg:px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+          className={`min-h-11 flex-1 lg:flex-none px-1 sm:px-2.5 lg:px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
             currentView === 'pdv'
               ? 'bg-white text-orange-600 shadow-xs font-extrabold'
               : 'text-stone-600 hover:text-stone-900'
@@ -243,7 +243,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={() => onChangeView('carta_compras')}
-          className={`px-2.5 lg:px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+          className={`min-h-11 flex-1 lg:flex-none px-1 sm:px-2.5 lg:px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
             currentView === 'carta_compras'
               ? 'bg-white text-orange-600 shadow-xs font-extrabold'
               : 'text-stone-600 hover:text-stone-900'
@@ -251,12 +251,12 @@ export const Header: React.FC<HeaderProps> = ({
           title="Editar tragos, precios, recetas y compras de insumos"
         >
           <BookOpen className="w-3.5 h-3.5 shrink-0" />
-          <span>Carta & Compras</span>
+          <span className="hidden sm:inline">Carta & Compras</span><span className="sm:hidden">Carta</span>
         </button>
 
         <button
           onClick={() => onChangeView('ventas')}
-          className={`px-2.5 lg:px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+          className={`min-h-11 flex-1 lg:flex-none px-1 sm:px-2.5 lg:px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
             currentView === 'ventas'
               ? 'bg-white text-orange-600 shadow-xs font-extrabold'
               : 'text-stone-600 hover:text-stone-900'
@@ -264,12 +264,12 @@ export const Header: React.FC<HeaderProps> = ({
           title="Ventas del día, arqueo de caja y balance del mes"
         >
           <CircleDollarSign className="w-3.5 h-3.5 shrink-0" />
-          <span>Caja & Mes</span>
+          <span className="hidden sm:inline">Caja & Mes</span><span className="sm:hidden">Caja</span>
         </button>
 
         <button
           onClick={() => onChangeView('preparacion')}
-          className={`px-2.5 lg:px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer relative whitespace-nowrap ${
+          className={`min-h-11 flex-1 lg:flex-none px-1 sm:px-2.5 lg:px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer relative whitespace-nowrap ${
             currentView === 'preparacion'
               ? 'bg-white text-orange-600 shadow-xs font-extrabold'
               : 'text-stone-600 hover:text-stone-900'
@@ -277,7 +277,7 @@ export const Header: React.FC<HeaderProps> = ({
           title="Estación de preparación de barra"
         >
           <ChefHat className="w-3.5 h-3.5 shrink-0" />
-          <span>Preparación</span>
+          <span className="hidden sm:inline">Preparación</span><span className="sm:hidden">Preparar</span>
           {preparingCount > 0 && (
             <span className="px-1.5 py-0.2 rounded-full bg-orange-600 text-white font-mono text-[10px] font-black shrink-0">
               {preparingCount}

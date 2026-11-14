@@ -53,6 +53,7 @@ export async function fetchInitialStateFromSupabase(): Promise<LoadedSupabaseSta
       supabase.from('wastes').select('*'),
     ]);
 
+    if (eventsRes.error || ordersRes.error || itemsRes.error) return null;
     const result: LoadedSupabaseState = {};
 
     if (profileRes.data && profileRes.data.length > 0) {
@@ -379,4 +380,11 @@ export async function deleteIngredientFromSupabase(id: string): Promise<{ succes
   if (!supabase) return { success: false, error: 'Sin conexión configurada' };
   const { error } = await supabase.from('ingredients').delete().eq('id', id);
   return error ? { success: false, error: error.message } : { success: true };
+}
+
+export async function deleteOrderFromSupabase(id: string): Promise<{ success: boolean; error?: string }> {
+  if (!supabase) return { success: false, error: 'Sin conexión configurada' };
+  // order_items are removed by the foreign key ON DELETE CASCADE.
+  const { data, error } = await supabase.from('orders').delete().eq('id', id).select('id');
+  return error ? { success: false, error: error.message } : data?.length ? { success: true } : { success: false, error: 'No se pudo verificar la eliminación del pedido.' };
 }

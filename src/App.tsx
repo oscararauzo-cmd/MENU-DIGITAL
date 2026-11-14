@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BarEvent, Cocktail, Ingredient, Order, WasteRecord, BusinessProfile, OrderPreparationStatus } from './types/bar';
 import { INITIAL_EVENTS, INITIAL_COCKTAILS, INITIAL_INGREDIENTS, DEFAULT_BUSINESS_PROFILE } from './data/initialData';
 import {
+  deleteOrderFromSupabase,
   isSupabaseConfigured,
   fetchInitialStateFromSupabase,
   syncCocktailsToSupabase,
@@ -34,6 +35,8 @@ import { PinLockModal } from './components/PinLockModal';
 
 export default function App() {
   const [orderSyncError, setOrderSyncError] = useState('');
+  const deletedOrders = useRef(new Set<string>());
+  const knownRemoteOrders = useRef(new Set<string>());
   const pendingOrders = useRef(new Set<string>());
   // Main View: 'pdv' (Barra) | 'carta_compras' (Carta & Compras) | 'ventas' (Caja & Mes) | 'preparacion' (Cocina/Prep)
   const [currentView, setCurrentView] = useState<MainAppView>('pdv');
@@ -179,6 +182,7 @@ export default function App() {
         }
 
         if (remote.events && remote.events.length > 0) {
+          knownRemoteOrders.current = new Set(remote.events.flatMap(e => e.orders.map(o => o.id)));
           setEvents(remote.events);
           setActiveEventId(prevId =>
             remote.events!.some(ev => ev.id === prevId) ? prevId : remote.events![0].id
@@ -210,10 +214,12 @@ export default function App() {
         setEvents(previous => previous.map(event => {
           const incoming = remote.events?.find(e => e.id === event.id);
           if (!incoming) return event;
-          const merged = new Map(event.orders.map(o => [o.id, o]));
+          const remoteIds = new Set(incoming.orders.map(o => o.id));
+          const merged = new Map(event.orders.filter(o => !deletedOrders.current.has(o.id) && (!knownRemoteOrders.current.has(o.id) || remoteIds.has(o.id) || pendingOrders.current.has(o.id))).map(o => [o.id, o]));
           for (const order of incoming.orders) {
-            if (!pendingOrders.current.has(order.id)) merged.set(order.id, order);
+            if (!pendingOrders.current.has(order.id) && !deletedOrders.current.has(order.id)) merged.set(order.id, order);
           }
+          for (const order of incoming.orders) knownRemoteOrders.current.add(order.id);
           return { ...event, orders: [...merged.values()] };
         }));
       } finally { fetching = false; }
@@ -318,6 +324,32 @@ export default function App() {
       pendingOrders.current.add(newOrder.id);
       pushOrderToSupabase(newOrder, activeEvent.id).then(result => { setOrderSyncError(result.success ? '' : 'El pedido se guardó en este dispositivo, pero no llegó a la nube. Revisa la conexión antes de continuar.'); }).catch(() => setOrderSyncError('No se pudo enviar el pedido a la nube.')).finally(() => pendingOrders.current.delete(newOrder.id));
     }
+  };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    if (pendingOrders.current.has(orderId)) throw new Error('El pedido se está sincronizando. Espera un momento y vuelve a intentar.');
+    const targetEventId = activeEvent.id;
+    const order = activeEvent.orders.find(o => o.id === orderId);
+    if (!order) return;
+    pendingOrders.current.add(orderId);
+    try {
+      if (isSupabaseConfigured()) {
+        const result = await deleteOrderFromSupabase(orderId);
+        if (!result.success) throw new Error(result.error || 'No se pudo eliminar el pedido.');
+      }
+      deletedOrders.current.add(orderId);
+      setEvents(prev => prev.map(ev => ev.id === targetEventId ? { ...ev, orders: ev.orders.filter(o => o.id !== orderId) } : ev));
+      // Only an unprepared order returns its recipe consumption to inventory.
+      if (!order.status || order.status === 'preparing') {
+        const returned = new Map<string, number>();
+        for (const item of order.items) {
+          for (const recipe of cocktails.find(c => c.id === item.cocktailId)?.recipe || []) {
+            returned.set(recipe.ingredientId, (returned.get(recipe.ingredientId) || 0) + recipe.amount * item.quantity);
+          }
+        }
+        setIngredients(prev => prev.map(ing => ing.volumePerUnitMl > 0 && returned.has(ing.id) ? { ...ing, currentStockUnits: Number((ing.currentStockUnits + returned.get(ing.id)! / ing.volumePerUnitMl).toFixed(2)) } : ing));
+      }
+    } finally { pendingOrders.current.delete(orderId); }
   };
 
   // Add waste & auto-deduct from Bodega stock
@@ -496,6 +528,7 @@ export default function App() {
         ) : currentView === 'preparacion' ? (
           <KdsScreen
             activeEvent={activeEvent}
+            onDeleteOrder={handleDeleteOrder}
             onUpdateOrderStatus={handleUpdateOrderStatus}
             onGoToBarra={() => setCurrentView('pdv')}
           />
