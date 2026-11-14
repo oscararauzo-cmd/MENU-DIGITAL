@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BarEvent, Cocktail, Ingredient, Order, WasteRecord, BusinessProfile, OrderPreparationStatus } from './types/bar';
 import { INITIAL_EVENTS, INITIAL_COCKTAILS, INITIAL_INGREDIENTS, DEFAULT_BUSINESS_PROFILE } from './data/initialData';
 import {
+  supabase,
   deleteOrderFromSupabase,
   isSupabaseConfigured,
   fetchInitialStateFromSupabase,
@@ -13,6 +14,8 @@ import {
   pushWasteToSupabase,
   syncBusinessProfileToSupabase,
 } from './lib/supabase';
+import { useOrderOutbox } from './hooks/useOrderOutbox';
+import { OrderConnection, type ConnectionState } from './components/OrderConnection';
 import { Header, MainAppView, OperationMode } from './components/Header';
 import { MenuScreen } from './components/MenuScreen';
 import { CartaComprasScreen } from './components/CartaComprasScreen';
@@ -38,6 +41,12 @@ export default function App() {
   const deletedOrders = useRef(new Set<string>());
   const knownRemoteOrders = useRef(new Set<string>());
   const pendingOrders = useRef(new Set<string>());
+  const outbox = useOrderOutbox(pendingOrders);
+  const sessionOrderIds = useRef(new Set(Object.keys(outbox.queue)));
+  const [connection, setConnection] = useState<ConnectionState>(isSupabaseConfigured() ? 'connecting' : 'local');
+  const [lastSync, setLastSync] = useState<number | null>(null);
+  const [receivedOrders, setReceivedOrders] = useState<Set<string>>(new Set());
+  const receiptChannel = useRef<ReturnType<NonNullable<typeof supabase>['channel']> | null>(null);
   // Main View: 'pdv' (Barra) | 'carta_compras' (Carta & Compras) | 'ventas' (Caja & Mes) | 'preparacion' (Cocina/Prep)
   const [currentView, setCurrentView] = useState<MainAppView>('pdv');
   const [operationMode, setOperationMode] = useState<OperationMode>('dia');
@@ -58,13 +67,21 @@ export default function App() {
 
   // Load persistent or default data (v3 starts clean with 4 starter items + 12 photo library templates + 0 fake orders)
   const [events, setEvents] = useState<BarEvent[]>(() => {
+    let savedEvents = INITIAL_EVENTS;
     try {
       const saved = localStorage.getItem('altura_events_v3');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error('Error loading events:', e);
+      if (saved && Array.isArray(JSON.parse(saved))) savedEvents = JSON.parse(saved);
+    } catch (e) { console.error('Error loading events:', e); }
+    const recovered = savedEvents.map(event => ({ ...event, orders: [...event.orders] }));
+    for (const entry of Object.values(outbox.queue)) {
+      let event = recovered.find(e => e.id === entry.eventId);
+      if (!event) {
+        event = { ...INITIAL_EVENTS[0], id: entry.eventId, name: 'Jornada recuperada', orders: [], wastes: [] };
+        recovered.push(event);
+      }
+      if (!event.orders.some(o => o.id === entry.order.id)) event.orders.push(entry.order);
     }
-    return INITIAL_EVENTS;
+    return recovered;
   });
 
   const [activeEventId, setActiveEventId] = useState<string>(() => {
@@ -183,7 +200,12 @@ export default function App() {
 
         if (remote.events && remote.events.length > 0) {
           knownRemoteOrders.current = new Set(remote.events.flatMap(e => e.orders.map(o => o.id)));
-          setEvents(remote.events);
+          setEvents(previous => remote.events!.map(event => {
+            const orders = new Map(event.orders.map(order => [order.id, order]));
+            for (const order of previous.find(e => e.id === event.id)?.orders || []) if (sessionOrderIds.current.has(order.id)) orders.set(order.id, order);
+            for (const entry of Object.values(outbox.queueRef.current)) if (entry.eventId === event.id) orders.set(entry.order.id, entry.order);
+            return { ...event, orders: [...orders.values()] };
+          }).concat(previous.filter(event => !remote.events!.some(e => e.id === event.id) && Object.values(outbox.queueRef.current).some(entry => entry.eventId === event.id))));
           setActiveEventId(prevId =>
             remote.events!.some(ev => ev.id === prevId) ? prevId : remote.events![0].id
           );
@@ -210,22 +232,29 @@ export default function App() {
       fetching = true;
       try {
         const remote = await fetchInitialStateFromSupabase();
-        if (cancelled || !remote?.events) return;
+        if (cancelled) return;
+        if (!remote?.events) { setConnection('offline'); return; }
+        setConnection(navigator.onLine ? 'online' : 'offline');
+        setLastSync(Date.now());
         setEvents(previous => previous.map(event => {
           const incoming = remote.events?.find(e => e.id === event.id);
           if (!incoming) return event;
           const remoteIds = new Set(incoming.orders.map(o => o.id));
-          const merged = new Map(event.orders.filter(o => !deletedOrders.current.has(o.id) && (!knownRemoteOrders.current.has(o.id) || remoteIds.has(o.id) || pendingOrders.current.has(o.id))).map(o => [o.id, o]));
+          const merged = new Map(event.orders.filter(o => !deletedOrders.current.has(o.id) && (!knownRemoteOrders.current.has(o.id) || remoteIds.has(o.id) || pendingOrders.current.has(o.id) || outbox.queueRef.current[o.id])).map(o => [o.id, o]));
           for (const order of incoming.orders) {
-            if (!pendingOrders.current.has(order.id) && !deletedOrders.current.has(order.id)) merged.set(order.id, order);
+            if (!pendingOrders.current.has(order.id) && !outbox.queueRef.current[order.id] && !deletedOrders.current.has(order.id)) merged.set(order.id, order);
           }
           for (const order of incoming.orders) knownRemoteOrders.current.add(order.id);
           return { ...event, orders: [...merged.values()] };
         }));
-      } finally { fetching = false; }
+      } catch { if (!cancelled) setConnection('offline'); } finally { fetching = false; }
     };
+    const offline = () => setConnection('offline');
+    window.addEventListener('offline', offline);
+    window.addEventListener('online', refresh);
+    void refresh();
     const timer = window.setInterval(refresh, 5000);
-    return () => { cancelled = true; clearInterval(timer); };
+    return () => { cancelled = true; clearInterval(timer); window.removeEventListener('offline', offline); window.removeEventListener('online', refresh); };
   }, []);
 
   // Sync to localStorage & Supabase
@@ -281,8 +310,27 @@ export default function App() {
   // Find currently active event
   const activeEvent = events.find(ev => ev.id === activeEventId) || events[0] || INITIAL_EVENTS[0];
 
+  useEffect(() => {
+    if (!supabase) return;
+    const channel = supabase.channel(`barra-receipts:${activeEvent.id}`);
+    receiptChannel.current = channel;
+    channel.on('broadcast', { event: 'visible' }, ({ payload }) => {
+      if (!Array.isArray(payload?.ids)) return;
+      setReceivedOrders(previous => new Set([...previous, ...payload.ids.filter((id: unknown) => typeof id === 'string')]));
+    }).subscribe();
+    return () => { receiptChannel.current = null; void supabase!.removeChannel(channel); };
+  }, [activeEvent.id]);
+
+  const acknowledgeOrders = useCallback((ids: string[]) => {
+    const synced = ids.filter(id => !outbox.queueRef.current[id]);
+    if (synced.length) void receiptChannel.current?.send({ type: 'broadcast', event: 'visible', payload: { ids: synced } });
+  }, [outbox.queueRef]);
+
   // Add order to active event & auto-deduct consumed stock from Bodega
   const handleAddOrder = (newOrder: Order) => {
+    if (sessionOrderIds.current.has(newOrder.id)) return;
+    if (isSupabaseConfigured()) outbox.enqueue(newOrder, activeEvent.id);
+    sessionOrderIds.current.add(newOrder.id);
     setEvents(prev =>
       prev.map(ev => {
         if (ev.id === activeEvent.id) {
@@ -320,14 +368,11 @@ export default function App() {
       );
     }
 
-    if (isSupabaseConfigured()) {
-      pendingOrders.current.add(newOrder.id);
-      pushOrderToSupabase(newOrder, activeEvent.id).then(result => { setOrderSyncError(result.success ? '' : 'El pedido se guardó en este dispositivo, pero no llegó a la nube. Revisa la conexión antes de continuar.'); }).catch(() => setOrderSyncError('No se pudo enviar el pedido a la nube.')).finally(() => pendingOrders.current.delete(newOrder.id));
-    }
+
   };
 
   const handleDeleteOrder = async (orderId: string) => {
-    if (pendingOrders.current.has(orderId)) throw new Error('El pedido se está sincronizando. Espera un momento y vuelve a intentar.');
+    if (pendingOrders.current.has(orderId) || outbox.queueRef.current[orderId]) throw new Error('El pedido se está sincronizando. Espera un momento y vuelve a intentar.');
     const targetEventId = activeEvent.id;
     const order = activeEvent.orders.find(o => o.id === orderId);
     if (!order) return;
@@ -504,6 +549,7 @@ export default function App() {
         onOpenChangePin={() => setIsChangePinOpen(true)}
       />
 
+      <OrderConnection state={connection} lastSync={lastSync} />
       {/* Main View Area: 100% Focused, Zero Visual Clutter */}
       <main className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
         {currentView === 'carta_compras' ? (
@@ -527,7 +573,8 @@ export default function App() {
           />
         ) : currentView === 'preparacion' ? (
           <KdsScreen
-            activeEvent={activeEvent}
+            activeEvent={{ ...activeEvent, orders: activeEvent.orders.filter(o => !outbox.queue[o.id]) }}
+            onOrdersVisible={acknowledgeOrders}
             onDeleteOrder={handleDeleteOrder}
             onUpdateOrderStatus={handleUpdateOrderStatus}
             onGoToBarra={() => setCurrentView('pdv')}
@@ -537,6 +584,10 @@ export default function App() {
             cocktails={cocktails}
             ingredients={ingredients}
             businessProfile={businessProfile}
+            activeOrders={activeEvent.orders}
+            outbox={outbox.queue}
+            receivedOrders={receivedOrders}
+            onRetryOrders={() => void outbox.retry()}
             onAddOrder={handleAddOrder}
             onGoToCartaCompras={() => setCurrentView('carta_compras')}
           />

@@ -40,3 +40,14 @@ Esta carpeta conserva el lenguaje visual consolidado. Simplificar un proceso sig
 ## Criterio para futuros cambios
 
 Antes de modificar una pantalla, revisar estas referencias y conservar sus colores, tipografía, imágenes, redondeados y jerarquía. No sustituirlas por controles genéricos ni quitar botones táctiles para reducir código. Cambiar la identidad visual requiere una petición explícita del usuario.
+
+## Conexión y avisos de pedidos
+
+- Franja discreta de conexión con última actualización, sin ventanas emergentes.
+- Seguimiento en caja: pendiente, enviando, en nube, en pantalla de barra, listo y entregado.
+- La cola local persiste antes de enviar. Reintenta al volver internet y cada 10 segundos, manteniendo el ID. La creación remota ignora duplicados para no devolver un pedido ya listo a preparación.
+- «En pantalla de barra» significa que una pantalla visible de Preparación emitió su recepción por el canal compartido; no demuestra que una persona leyó el pedido. Si el canal de recepción no está disponible, se conserva «En nube · esperando barra».
+- El sonido se activa manualmente en Preparación, con una prueba corta. No se promete sonido ni notificaciones con la aplicación cerrada.
+- `preparacion-avisos.png` muestra la prueba local con datos ficticios.
+- Prueba visual aislada: `/tests/fixtures/order-flow.html` con el servidor de desarrollo. No escribe pedidos en Supabase.
+- Pruebas de recuperación y deduplicación: `node --experimental-strip-types --test tests/orderOutbox.test.mjs`.

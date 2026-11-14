@@ -118,6 +118,7 @@ export async function fetchInitialStateFromSupabase(): Promise<LoadedSupabaseSta
 
       const ordersByEvent = new Map<string, Order[]>();
       for (const o of ordersRes.data || []) {
+        if (!itemsByOrder.get(o.id)?.length) continue;
         const list = ordersByEvent.get(o.event_id) || [];
         list.push({
           id: o.id,
@@ -276,7 +277,7 @@ export async function pushOrderToSupabase(order: Order, eventId: string): Promis
       status: order.status || 'preparing',
       printed: order.printed || false,
       created_at: new Date(order.timestamp).toISOString(),
-    }, { onConflict: 'id' });
+    }, { onConflict: 'id', ignoreDuplicates: true });
 
     if (orderError) throw orderError;
 
@@ -293,7 +294,7 @@ export async function pushOrderToSupabase(order: Order, eventId: string): Promis
     if (itemRecords.length > 0) {
       const { error: itemsError } = await supabase
         .from('order_items')
-        .upsert(itemRecords, { onConflict: 'id' });
+        .upsert(itemRecords, { onConflict: 'id', ignoreDuplicates: true });
       if (itemsError) throw itemsError;
     }
 
