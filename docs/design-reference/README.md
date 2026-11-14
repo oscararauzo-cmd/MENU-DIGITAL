@@ -43,11 +43,23 @@ Antes de modificar una pantalla, revisar estas referencias y conservar sus color
 
 ## Conexión y avisos de pedidos
 
-- Franja discreta de conexión con última actualización, sin ventanas emergentes.
-- Seguimiento en caja: pendiente, enviando, en nube, en pantalla de barra, listo y entregado.
+- La franja de conexión y última actualización se muestra únicamente en Preparación.
+- La pantalla de creación de pedidos solo contiene catálogo, comanda, medios de pago y envío. No agregar listas de pedidos anteriores, estados, seguimiento, reintentos ni controles de conexión. Todo el seguimiento ocurre en Preparación.
 - La cola local persiste antes de enviar. Reintenta al volver internet y cada 10 segundos, manteniendo el ID. La creación remota ignora duplicados para no devolver un pedido ya listo a preparación.
-- «En pantalla de barra» significa que una pantalla visible de Preparación emitió su recepción por el canal compartido; no demuestra que una persona leyó el pedido. Si el canal de recepción no está disponible, se conserva «En nube · esperando barra».
 - El sonido se activa manualmente en Preparación, con una prueba corta. No se promete sonido ni notificaciones con la aplicación cerrada.
 - `preparacion-avisos.png` muestra la prueba local con datos ficticios.
 - Prueba visual aislada: `/tests/fixtures/order-flow.html` con el servidor de desarrollo. No escribe pedidos en Supabase.
 - Pruebas de recuperación y deduplicación: `node --experimental-strip-types --test tests/orderOutbox.test.mjs`.
+
+## Separación de operaciones
+
+- Al abrir la aplicación aparece Inicio: Día a día, Eventos especiales y Consolidado del mes.
+- La marca ALTURA vuelve a Inicio. Seleccionar una operación abre su resumen, no mezcla el contexto con otras fechas.
+- Los registros anteriores sin tipo explícito se muestran por clasificar; no asumir automáticamente que son jornadas normales.
+- Cada evento lleva inventario y recetas propios, guardados en el JSONB de su snapshot mediante el campo reservado `__altura_context` (versión 1). Las cantidades numéricas históricas se conservan.
+- Los insumos del evento no se descuentan de la bodega habitual. Al cierre de consignación se devuelven sellados y solo los remanentes abiertos se incorporan al bar. La liquidación carga envases abiertos completos.
+- El cierre conectado reclama el registro abierto antes de transferir remanentes, para que otro dispositivo no repita el cierre. Requiere conexión cuando Supabase está configurado.
+- Las métricas abren aisladas por registro. «Hoy» incluye solo jornadas clasificadas de hoy en Lima; «Mes» filtra el mes actual y permite incluir o excluir eventos. No recurrir a otra fecha si no hay datos.
+- Guardar el contexto y los cambios de inventario de eventos pendientes de sincronización. Los pedidos pendientes conservan el contexto del evento al reintentarse.
+- La creación de pedidos sigue limpia: esta administración se hace en Inicio y Resumen, nunca en el catálogo.
+- `inicio-operaciones.png` es una referencia con datos ficticios; prueba aislada en `/tests/fixtures/operations.html`.

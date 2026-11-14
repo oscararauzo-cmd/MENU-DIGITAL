@@ -6,12 +6,11 @@ import { isSupabaseConfigured } from '../lib/supabase';
 interface KdsScreenProps {
   activeEvent: BarEvent;
   onUpdateOrderStatus?: (orderId: string, status: OrderPreparationStatus) => void;
-  onOrdersVisible?: (ids: string[]) => void;
   onDeleteOrder?: (orderId: string) => Promise<void>;
   onGoToBarra?: () => void;
 }
 
-export const KdsScreen: React.FC<KdsScreenProps> = ({ activeEvent, onUpdateOrderStatus, onOrdersVisible, onDeleteOrder, onGoToBarra }) => {
+export const KdsScreen: React.FC<KdsScreenProps> = ({ activeEvent, onUpdateOrderStatus, onDeleteOrder, onGoToBarra }) => {
   const audio = useRef<AudioContext | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [soundError, setSoundError] = useState('');
@@ -28,15 +27,6 @@ export const KdsScreen: React.FC<KdsScreenProps> = ({ activeEvent, onUpdateOrder
     oscillator.start(); oscillator.stop(context.currentTime + 0.46);
   };
   useEffect(() => () => { void audio.current?.close(); }, []);
-  useEffect(() => {
-    const acknowledge = () => {
-      if (document.visibilityState === 'visible') onOrdersVisible?.(activeEvent.orders.map(o => o.id));
-    };
-    acknowledge();
-    const timer = window.setInterval(acknowledge, 5000);
-    document.addEventListener('visibilitychange', acknowledge);
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', acknowledge); };
-  }, [activeEvent.id, activeEvent.orders, onOrdersVisible]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');

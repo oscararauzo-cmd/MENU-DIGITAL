@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Cocktail, Order, OrderType, Ingredient, PaymentMethod, BusinessProfile } from '../types/bar';
-import type { OrderOutbox } from '../lib/orderOutbox';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { calculateCocktailUnitCost } from '../utils/calculations';
 import {
@@ -19,10 +18,6 @@ import {
 } from 'lucide-react';
 
 interface MenuScreenProps {
-  activeOrders?: Order[];
-  outbox?: OrderOutbox;
-  receivedOrders?: Set<string>;
-  onRetryOrders?: () => void;
   cocktails: Cocktail[];
   ingredients: Ingredient[];
   businessProfile: BusinessProfile;
@@ -31,7 +26,6 @@ interface MenuScreenProps {
 }
 
 export const MenuScreen: React.FC<MenuScreenProps> = ({
-  activeOrders = [], outbox = {}, receivedOrders = new Set(), onRetryOrders,
   cocktails,
   ingredients,
   businessProfile,
@@ -170,9 +164,9 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
 
     submitting.current = true;
     try { onAddOrder(newOrder); }
-    catch {
+    catch (error) {
       submitting.current = false;
-      setLastNotification('No se pudo guardar. Conservamos tu comanda; libera espacio y vuelve a intentar.');
+      setLastNotification(error instanceof Error ? error.message : 'No se pudo guardar. Conservamos tu comanda.');
       return;
     }
     window.setTimeout(() => { submitting.current = false; }, 300);
@@ -384,18 +378,6 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
             )}
           </div>
         </div>
-
-        {activeOrders.length > 0 && <section aria-label="Seguimiento de pedidos" className="px-3 sm:px-5 py-2 border-b border-stone-200 bg-orange-50/50 shrink-0 max-h-36 overflow-y-auto space-y-1.5">
-          {[...activeOrders].sort((a,b) => Number(Boolean(outbox[b.id])) - Number(Boolean(outbox[a.id])) || b.timestamp - a.timestamp).slice(0,3).map(order => {
-            const entry = outbox[order.id];
-            const label = entry ? entry.state === 'sending' ? 'Enviando…' : entry.state === 'error' ? 'Pendiente · reintentar' : 'Pendiente de envío' : !isSupabaseConfigured() ? 'Guardado aquí' : order.status === 'delivered' ? 'Entregado' : order.status === 'ready' ? 'Listo para entregar' : receivedOrders.has(order.id) ? 'En pantalla de barra' : 'En nube · esperando barra';
-            return <div key={order.id} className="flex flex-wrap items-center justify-between gap-1 text-[11px] rounded-xl border border-stone-200 bg-white px-3 py-1.5">
-              <span className="min-w-0 flex-1 truncate font-bold">#{order.id.slice(-6).toUpperCase()} · {order.items.map(i => `${i.quantity}× ${i.cocktailName}`).join(', ')}</span>
-              <span role="status" className={`font-bold ${entry ? 'text-amber-800' : 'text-emerald-700'}`}>{label}</span>
-              {entry && entry.state !== 'sending' && <button onClick={onRetryOrders} className="min-h-11 px-3 rounded-xl bg-orange-100 text-orange-800 font-bold">Reintentar</button>}
-            </div>;
-          })}
-        </section>}
 
         {/* Catalog Grid: scrolls independently inside viewport, bottom padding avoids overlap with floating bar on mobile/collapsed */}
         <div

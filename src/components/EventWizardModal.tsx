@@ -42,6 +42,7 @@ export const EventWizardModal: React.FC<EventWizardModalProps> = ({
     }
 
     const savedEvent: BarEvent = {
+      ...existingEvent,
       id: existingEvent?.id || `event-${Date.now()}`,
       name: name.trim(),
       date,

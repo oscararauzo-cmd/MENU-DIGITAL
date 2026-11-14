@@ -1,6 +1,7 @@
+import { selectPeriodEvents, eventKind, limaDate, consignmentSettlement } from '../utils/operationContext';
 import React, { useState, useMemo, useEffect } from 'react';
 import { BarEvent, Cocktail, Ingredient } from '../types/bar';
-import { exportEventToExcel } from '../utils/excelExport';
+import { exportEventToExcel, exportOperationsSummary } from '../utils/excelExport';
 import {
   CircleDollarSign,
   FileSpreadsheet,
@@ -32,6 +33,7 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
   operationMode = 'dia',
   onChangeOperationMode,
 }) => {
+  const [includeEvents, setIncludeEvents] = useState(true);
   const [period, setPeriod] = useState<'dia' | 'mes' | 'evento'>(operationMode);
   const [filterType, setFilterType] = useState<'all' | 'venta' | 'dj'>('all');
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -50,15 +52,8 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
 
   // Pool of events based on period
   const relevantEvents = useMemo(() => {
-    if (period === 'evento') return [activeEvent];
-    if (period === 'mes') {
-      return allEvents.length > 0 ? allEvents : [activeEvent];
-    }
-    // 'dia': today's events, fallback to activeEvent if none dated today
-    const todayIso = new Date().toISOString().split('T')[0];
-    const todays = allEvents.filter(ev => ev.date === todayIso);
-    return todays.length > 0 ? todays : [activeEvent];
-  }, [period, activeEvent, allEvents]);
+    return selectPeriodEvents(allEvents.length ? allEvents : [activeEvent], activeEvent, period, includeEvents);
+  }, [period, activeEvent, allEvents, includeEvents]);
 
   // Aggregate orders for the period
   const periodOrders = useMemo(() => {
@@ -83,10 +78,10 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
 
   // Estimated costs
   const periodIngredientCost = useMemo(() => {
-    return periodOrders.reduce((sum, o) => {
-      return sum + o.items.reduce((s, it) => s + (it.unitCost * it.quantity), 0);
-    }, 0);
-  }, [periodOrders]);
+    return relevantEvents.reduce((total,event) => total + (event.isConsignment && event.inventory?.length
+      ? consignmentSettlement(event,cocktails).reduce((sum,line)=>sum+line.cost,0)
+      : event.orders.reduce((sum,o)=>sum+o.items.reduce((n,item)=>n+item.unitCost*item.quantity,0),0)),0);
+  }, [relevantEvents,cocktails]);
 
   const periodNetProfit = periodTotalRevenue - periodIngredientCost;
   const periodMarginPct = periodTotalRevenue > 0 ? (periodNetProfit / periodTotalRevenue) * 100 : 0;
@@ -112,19 +107,7 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
   const handleDownloadExcel = () => {
     setIsExporting(true);
     try {
-      if (period === 'mes' && relevantEvents.length > 1) {
-        const consolidatedMonthlyEvent: BarEvent = {
-          ...activeEvent,
-          id: `mes-${new Date().toISOString().slice(0, 7)}`,
-          name: `Consolidado Mensual (${relevantEvents.length} jornadas)`,
-          date: new Date().toISOString().slice(0, 7),
-          orders: relevantEvents.flatMap(ev => ev.orders),
-          wastes: relevantEvents.flatMap(ev => ev.wastes),
-        };
-        exportEventToExcel(consolidatedMonthlyEvent, cocktails, ingredients);
-      } else {
-        exportEventToExcel(activeEvent, cocktails, ingredients);
-      }
+      exportOperationsSummary(relevantEvents, period === 'mes' ? `Mes ${limaDate().slice(0,7)}` : activeEvent.name, event => event.isConsignment && event.inventory?.length ? consignmentSettlement(event,cocktails).reduce((sum,line)=>sum+line.cost,0) : event.orders.reduce((sum,order)=>sum+order.items.reduce((n,item)=>n+item.unitCost*item.quantity,0),0));
     } finally {
       setTimeout(() => setIsExporting(false), 800);
     }
@@ -137,10 +120,11 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
     return true;
   });
 
-  const currentMonthLabel = new Date().toLocaleDateString('es-PE', { month: 'long' });
+  const currentMonthLabel = new Date().toLocaleDateString('es-PE', { month: 'long', timeZone: 'America/Lima' });
 
   return (
     <div className="flex-1 min-h-0 h-full flex flex-col bg-[#faf8f5] text-stone-900 overflow-y-auto p-4 sm:p-6 space-y-4 font-sans">
+      {period === 'mes' && <label className="flex items-center gap-3 text-sm font-bold rounded-2xl bg-white border border-stone-200 p-4"><input type="checkbox" checked={includeEvents} onChange={e=>setIncludeEvents(e.target.checked)} className="w-5 h-5 accent-orange-600" />Incluir eventos especiales en el consolidado mensual</label>}
       {/* Top Header & Period Selector */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-3xl border border-stone-200 shadow-xs shrink-0">
         <div>
@@ -152,7 +136,7 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
               ? `Resumen Financiero del Mes (${currentMonthLabel})`
               : period === 'dia'
               ? 'Arqueo de Caja del Día de Hoy'
-              : `Arqueo del Evento: ${activeEvent.name}`}
+              : `${eventKind(activeEvent)==='evento'?'Evento':'Jornada'}: ${activeEvent.name}`}
           </h2>
         </div>
 
@@ -237,10 +221,10 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
           </span>
         </div>
 
-        {/* Ganancia Neta */}
+        {/* Margen bruto estimado */}
         <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
           <div className="flex items-center justify-between text-stone-500 mb-1">
-            <span className="text-xs font-bold uppercase tracking-wider">Ganancia Neta</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Margen bruto estimado</span>
             <TrendingUp className="w-4 h-4 text-emerald-600" />
           </div>
           <span className="text-2xl font-mono font-black text-emerald-600 block">

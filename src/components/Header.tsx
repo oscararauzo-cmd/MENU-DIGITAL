@@ -20,7 +20,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 
-export type MainAppView = 'pdv' | 'carta_compras' | 'ventas' | 'preparacion';
+export type MainAppView = 'inicio' | 'resumen' | 'pdv' | 'carta_compras' | 'ventas' | 'preparacion';
 export type OperationMode = 'dia' | 'mes' | 'evento';
 
 interface HeaderProps {
@@ -84,7 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   const modeLabels: Record<OperationMode, { label: string; icon: any }> = {
-    dia: { label: 'Día a Día (Hoy)', icon: Sun },
+    dia: { label: `${activeEvent.operationType ? 'Día a día' : 'Registro'} · ${activeEvent.name}`, icon: Sun },
     mes: { label: 'Gestión Mensual', icon: Calendar },
     evento: { label: activeEvent.name || 'Evento Activo', icon: Flame },
   };
@@ -96,9 +96,9 @@ export const Header: React.FC<HeaderProps> = ({
       {/* LEFT: Brand Logo + Operation Mode Selector (Día a Día / Mes / Evento) */}
       <div className="flex items-center gap-2 min-w-0 shrink-0">
         <button
-          onClick={onOpenOnboarding}
+          onClick={() => onChangeView('inicio')}
           className="h-9 px-2 py-0.5 bg-white border border-stone-200 hover:border-orange-400 rounded-xl flex items-center justify-center shadow-2xs shrink-0 transition active:scale-95 cursor-pointer"
-          title="Configurar logotipo y datos de tu bar"
+          title="Volver al inicio de operaciones"
         >
           <img
             src={businessProfile.logoUrl || '/logo_altura.png'}
@@ -117,7 +117,7 @@ export const Header: React.FC<HeaderProps> = ({
             <CurrentModeIcon className="w-3.5 h-3.5 text-orange-600 shrink-0" />
             <div className="min-w-0">
               <span className="text-xs font-extrabold text-stone-900 block truncate max-w-[60px] sm:max-w-[90px] lg:max-w-[160px] leading-tight">
-                {modeLabels[operationMode].label}
+                {currentView==='inicio'?'Operaciones':modeLabels[operationMode].label}
               </span>
             </div>
             <ChevronDown className="w-3 h-3 text-stone-400 shrink-0 ml-0.5" />
@@ -151,7 +151,6 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={() => {
                   onChangeOperationMode('mes');
-                  onChangeView('ventas');
                   setIsModeSelectorOpen(false);
                 }}
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
@@ -195,7 +194,6 @@ export const Header: React.FC<HeaderProps> = ({
                       key={ev.id}
                       onClick={() => {
                         onSelectEvent(ev.id);
-                        onChangeOperationMode('evento');
                         setIsModeSelectorOpen(false);
                       }}
                       className={`w-full px-3 py-1.5 rounded-lg text-[11px] font-bold text-left truncate cursor-pointer ${

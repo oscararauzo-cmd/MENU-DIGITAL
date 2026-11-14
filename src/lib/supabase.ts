@@ -1,3 +1,4 @@
+import { encodeEventSnapshot, decodeEventSnapshot } from '../utils/operationContext';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
   Cocktail,
@@ -161,10 +162,7 @@ export async function fetchInitialStateFromSupabase(): Promise<LoadedSupabaseSta
         closedAt: ev.closed_at ? new Date(ev.closed_at).getTime() : undefined,
         orders: ordersByEvent.get(ev.id) || [],
         wastes: wastesByEvent.get(ev.id) || [],
-        initialIngredientsSnapshot:
-          typeof ev.initial_ingredients_snapshot === 'string'
-            ? JSON.parse(ev.initial_ingredients_snapshot)
-            : (ev.initial_ingredients_snapshot || {}),
+        ...decodeEventSnapshot(ev.initial_ingredients_snapshot),
       }));
     }
 
@@ -242,7 +240,7 @@ export async function syncEventToSupabase(event: BarEvent): Promise<{ success: b
       name: event.name,
       date: event.date,
       status: event.status,
-      initial_ingredients_snapshot: event.initialIngredientsSnapshot || {},
+      initial_ingredients_snapshot: encodeEventSnapshot(event),
       created_at: new Date(event.createdAt).toISOString(),
       closed_at: event.closedAt ? new Date(event.closedAt).toISOString() : null,
     }, { onConflict: 'id' });
@@ -255,16 +253,17 @@ export async function syncEventToSupabase(event: BarEvent): Promise<{ success: b
   }
 }
 
-export async function pushOrderToSupabase(order: Order, eventId: string): Promise<{ success: boolean; error?: string }> {
+export async function pushOrderToSupabase(order: Order, eventId: string, eventContext?: BarEvent): Promise<{ success: boolean; error?: string }> {
   if (!supabase) return { success: false };
 
   try {
     // Asegurar que el evento padre exista en Supabase
     await supabase.from('events').upsert({
       id: eventId,
-      name: 'Jornada de Barra',
-      date: new Date().toISOString().split('T')[0],
-      status: 'active',
+      name: eventContext?.name || 'Jornada de Barra',
+      initial_ingredients_snapshot: eventContext ? encodeEventSnapshot(eventContext) : {},
+      date: eventContext?.date || new Date().toISOString().split('T')[0],
+      status: eventContext?.status || 'active',
     }, { onConflict: 'id', ignoreDuplicates: true });
 
     const { error: orderError } = await supabase.from('orders').upsert({
@@ -388,4 +387,11 @@ export async function deleteOrderFromSupabase(id: string): Promise<{ success: bo
   // order_items are removed by the foreign key ON DELETE CASCADE.
   const { data, error } = await supabase.from('orders').delete().eq('id', id).select('id');
   return error ? { success: false, error: error.message } : data?.length ? { success: true } : { success: false, error: 'No se pudo verificar la eliminación del pedido.' };
+}
+
+export async function claimEventClose(event: BarEvent): Promise<boolean> {
+  if (!supabase) return true;
+  const { data, error } = await supabase.from('events').update({ status: 'closed', closed_at: new Date(event.closedAt!).toISOString(), initial_ingredients_snapshot: encodeEventSnapshot(event) }).eq('id', event.id).eq('status','active').select('id');
+  if (error) throw error;
+  return Boolean(data?.length);
 }

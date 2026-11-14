@@ -96,7 +96,17 @@ export interface WasteRecord {
   notes?: string;
 }
 
+export interface EventInventoryLine {
+  ingredient: Ingredient;
+  receivedUnits: number;
+  openedUnits: number;
+}
+
 export interface BarEvent {
+  operationType?: 'dia' | 'evento';
+  inventory?: EventInventoryLine[];
+  recipeSnapshot?: Cocktail[];
+  inventorySettledAt?: number;
   id: string;
   name: string;
   date: string;

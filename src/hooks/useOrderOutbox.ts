@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Order } from '../types/bar';
+import type { Order, BarEvent } from '../types/bar';
 import { enqueueOrder, restoreOutbox, type OrderOutbox } from '../lib/orderOutbox';
 import { isSupabaseConfigured, pushOrderToSupabase } from '../lib/supabase';
 
@@ -25,7 +25,7 @@ export function useOrderOutbox(pending: React.RefObject<Set<string>>) {
       pending.current.add(id);
       try {
         save({ ...current.current, [id]: { ...entry, state: 'sending' } });
-        const result = await pushOrderToSupabase(entry.order, entry.eventId);
+        const result = await pushOrderToSupabase(entry.order, entry.eventId, entry.eventContext);
         if (!result.success) throw new Error(result.error || 'No se pudo enviar');
         const next = { ...current.current };
         delete next[id];
@@ -39,8 +39,8 @@ export function useOrderOutbox(pending: React.RefObject<Set<string>>) {
       }
     }
   }, [pending, save]);
-  const enqueue = useCallback((order: Order, eventId: string) => {
-    save(enqueueOrder(current.current, order, eventId));
+  const enqueue = useCallback((order: Order, eventId: string, eventContext?: BarEvent) => {
+    save(enqueueOrder(current.current, order, eventId, eventContext));
     void retry();
   }, [retry, save]);
   useEffect(() => {

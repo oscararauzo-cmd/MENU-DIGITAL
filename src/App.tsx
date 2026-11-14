@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { OperationsDashboard, OperationOverview } from './components/OperationsDashboard';
+import { eventKind, eventInventory, consignmentSettlement, limaDate } from './utils/operationContext';
+import React, { useState, useEffect, useRef } from 'react';
 import { BarEvent, Cocktail, Ingredient, Order, WasteRecord, BusinessProfile, OrderPreparationStatus } from './types/bar';
 import { INITIAL_EVENTS, INITIAL_COCKTAILS, INITIAL_INGREDIENTS, DEFAULT_BUSINESS_PROFILE } from './data/initialData';
 import {
-  supabase,
+  claimEventClose,
   deleteOrderFromSupabase,
   isSupabaseConfigured,
   fetchInitialStateFromSupabase,
@@ -38,6 +40,30 @@ import { PinLockModal } from './components/PinLockModal';
 
 export default function App() {
   const [orderSyncError, setOrderSyncError] = useState('');
+  const eventSaves = useRef<Record<string, BarEvent>>((() => {
+    try { return JSON.parse(localStorage.getItem('altura_event_outbox_v1') || '{}') || {}; } catch { return {}; }
+  })());
+  const eventSavesBusy = useRef(new Set<string>());
+  const flushEventSaves = async () => {
+    if (!isSupabaseConfigured() || !navigator.onLine) return;
+    for (const event of Object.values(eventSaves.current)) {
+      if (eventSavesBusy.current.has(event.id)) continue;
+      eventSavesBusy.current.add(event.id);
+      try {
+        const result=await syncEventToSupabase(event);
+        if (result.success && eventSaves.current[event.id] === event) {
+          delete eventSaves.current[event.id];
+          localStorage.setItem('altura_event_outbox_v1',JSON.stringify(eventSaves.current));
+        }
+      } finally { eventSavesBusy.current.delete(event.id); }
+    }
+  };
+  const queueEventSave = (event:BarEvent) => {
+    if (!isSupabaseConfigured()) return;
+    eventSaves.current={...eventSaves.current,[event.id]:event};
+    localStorage.setItem('altura_event_outbox_v1',JSON.stringify(eventSaves.current));
+    void flushEventSaves();
+  };
   const deletedOrders = useRef(new Set<string>());
   const knownRemoteOrders = useRef(new Set<string>());
   const pendingOrders = useRef(new Set<string>());
@@ -45,11 +71,12 @@ export default function App() {
   const sessionOrderIds = useRef(new Set(Object.keys(outbox.queue)));
   const [connection, setConnection] = useState<ConnectionState>(isSupabaseConfigured() ? 'connecting' : 'local');
   const [lastSync, setLastSync] = useState<number | null>(null);
-  const [receivedOrders, setReceivedOrders] = useState<Set<string>>(new Set());
-  const receiptChannel = useRef<ReturnType<NonNullable<typeof supabase>['channel']> | null>(null);
   // Main View: 'pdv' (Barra) | 'carta_compras' (Carta & Compras) | 'ventas' (Caja & Mes) | 'preparacion' (Cocina/Prep)
-  const [currentView, setCurrentView] = useState<MainAppView>('pdv');
+  const [currentView, setCurrentView] = useState<MainAppView>('inicio');
+  const [metricsPeriod, setMetricsPeriod] = useState<OperationMode>('evento');
   const [operationMode, setOperationMode] = useState<OperationMode>('dia');
+  const [newProjectType, setNewProjectType] = useState<'dia'|'evento'>('dia');
+  const closingEvents = useRef(new Set<string>());
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [isChangePinOpen, setIsChangePinOpen] = useState<boolean>(false);
@@ -72,7 +99,9 @@ export default function App() {
       const saved = localStorage.getItem('altura_events_v3');
       if (saved && Array.isArray(JSON.parse(saved))) savedEvents = JSON.parse(saved);
     } catch (e) { console.error('Error loading events:', e); }
-    const recovered = savedEvents.map(event => ({ ...event, orders: [...event.orders] }));
+    const local = new Map(savedEvents.map(event=>[event.id,event]));
+    for (const event of Object.values(eventSaves.current)) local.set(event.id,{...event,orders:local.get(event.id)?.orders || event.orders});
+    const recovered = [...local.values()].map(event => ({ ...event, orders: [...event.orders] }));
     for (const entry of Object.values(outbox.queue)) {
       let event = recovered.find(e => e.id === entry.eventId);
       if (!event) {
@@ -204,8 +233,8 @@ export default function App() {
             const orders = new Map(event.orders.map(order => [order.id, order]));
             for (const order of previous.find(e => e.id === event.id)?.orders || []) if (sessionOrderIds.current.has(order.id)) orders.set(order.id, order);
             for (const entry of Object.values(outbox.queueRef.current)) if (entry.eventId === event.id) orders.set(entry.order.id, entry.order);
-            return { ...event, orders: [...orders.values()] };
-          }).concat(previous.filter(event => !remote.events!.some(e => e.id === event.id) && Object.values(outbox.queueRef.current).some(entry => entry.eventId === event.id))));
+            return { ...event, ...(eventSaves.current[event.id] || {}), orders: [...orders.values()] };
+          }).concat(previous.filter(event => !remote.events!.some(e => e.id === event.id) && (eventSaves.current[event.id] || Object.values(outbox.queueRef.current).some(entry => entry.eventId === event.id)))));
           setActiveEventId(prevId =>
             remote.events!.some(ev => ev.id === prevId) ? prevId : remote.events![0].id
           );
@@ -231,6 +260,7 @@ export default function App() {
       if (fetching) return;
       fetching = true;
       try {
+        await flushEventSaves();
         const remote = await fetchInitialStateFromSupabase();
         if (cancelled) return;
         if (!remote?.events) { setConnection('offline'); return; }
@@ -245,8 +275,8 @@ export default function App() {
             if (!pendingOrders.current.has(order.id) && !outbox.queueRef.current[order.id] && !deletedOrders.current.has(order.id)) merged.set(order.id, order);
           }
           for (const order of incoming.orders) knownRemoteOrders.current.add(order.id);
-          return { ...event, orders: [...merged.values()] };
-        }));
+          return { ...(eventSaves.current[event.id] ? event : {...event,...incoming}), orders: [...merged.values()] };
+        }).concat(remote.events!.filter(incoming=>!previous.some(event=>event.id===incoming.id))));
       } catch { if (!cancelled) setConnection('offline'); } finally { fetching = false; }
     };
     const offline = () => setConnection('offline');
@@ -309,27 +339,49 @@ export default function App() {
 
   // Find currently active event
   const activeEvent = events.find(ev => ev.id === activeEventId) || events[0] || INITIAL_EVENTS[0];
+  const isSpecialEvent = eventKind(activeEvent) === 'evento';
+  const activeCocktails = isSpecialEvent ? (activeEvent.recipeSnapshot || cocktails) : cocktails;
+  const activeIngredients = isSpecialEvent ? eventInventory(activeEvent, cocktails) : ingredients;
+  const setActiveIngredients: React.Dispatch<React.SetStateAction<Ingredient[]>> = update => {
+    if (!isSpecialEvent) { setIngredients(update); return; }
+    const next = typeof update === 'function' ? update(activeIngredients) : update;
+    const inventory = next.map(ingredient => {
+      const prior = activeEvent.inventory?.find(l=>l.ingredient.id===ingredient.id);
+      const before = activeIngredients.find(i=>i.id===ingredient.id);
+      const receivedUnits = prior ? Math.max(0, prior.receivedUnits + ingredient.currentStockUnits - (before?.currentStockUnits || 0)) : ingredient.currentStockUnits;
+      return { ingredient: {...ingredient}, receivedUnits, openedUnits: prior?.openedUnits || 0 };
+    });
+    handleSaveEvent({...activeEvent, inventory});
+  };
+  const openOperation = (event: BarEvent) => {
+    setActiveEventId(event.id);
+    setOperationMode(eventKind(event));
+    setMetricsPeriod('evento');
+    setCurrentView('resumen');
+  };
+  const changeMode = (mode: OperationMode) => {
+    if (mode === 'mes') { setMetricsPeriod('mes'); setOperationMode('mes'); setCurrentView('ventas'); return; }
+    if (mode === 'dia') {
+      const daily = events.find(e=>eventKind(e)==='dia' && e.date===limaDate() && e.status==='active');
+      if (daily) { openOperation(daily); return; }
+    }
+    setCurrentView('inicio');
+  };
 
-  useEffect(() => {
-    if (!supabase) return;
-    const channel = supabase.channel(`barra-receipts:${activeEvent.id}`);
-    receiptChannel.current = channel;
-    channel.on('broadcast', { event: 'visible' }, ({ payload }) => {
-      if (!Array.isArray(payload?.ids)) return;
-      setReceivedOrders(previous => new Set([...previous, ...payload.ids.filter((id: unknown) => typeof id === 'string')]));
-    }).subscribe();
-    return () => { receiptChannel.current = null; void supabase!.removeChannel(channel); };
-  }, [activeEvent.id]);
-
-  const acknowledgeOrders = useCallback((ids: string[]) => {
-    const synced = ids.filter(id => !outbox.queueRef.current[id]);
-    if (synced.length) void receiptChannel.current?.send({ type: 'broadcast', event: 'visible', payload: { ids: synced } });
-  }, [outbox.queueRef]);
 
   // Add order to active event & auto-deduct consumed stock from Bodega
   const handleAddOrder = (newOrder: Order) => {
+    if (activeEvent.status === 'closed') throw new Error('Este registro está cerrado. Abre una jornada o evento desde Inicio.');
+    if (isSpecialEvent) {
+      const required = new Map<string,number>();
+      for (const item of newOrder.items) for (const recipe of activeCocktails.find(c=>c.id===item.cocktailId)?.recipe || []) required.set(recipe.ingredientId,(required.get(recipe.ingredientId)||0)+recipe.amount*item.quantity);
+      for (const [id, amount] of required) {
+        const ingredient=activeIngredients.find(i=>i.id===id);
+        if (!ingredient || ingredient.currentStockUnits * ingredient.volumePerUnitMl + 1e-8 < amount) throw new Error(`No hay suficiente ${ingredient?.name || 'stock asignado'} en este evento. Revisa sus insumos.`);
+      }
+    }
     if (sessionOrderIds.current.has(newOrder.id)) return;
-    if (isSupabaseConfigured()) outbox.enqueue(newOrder, activeEvent.id);
+    if (isSupabaseConfigured()) outbox.enqueue(newOrder, activeEvent.id, {...activeEvent,orders:[],wastes:[]});
     sessionOrderIds.current.add(newOrder.id);
     setEvents(prev =>
       prev.map(ev => {
@@ -346,7 +398,7 @@ export default function App() {
     // Compute total ingredient usage (in ml or units) across sold items
     const consumedByIng = new Map<string, number>();
     for (const item of newOrder.items) {
-      const cocktail = cocktails.find(c => c.id === item.cocktailId);
+      const cocktail = activeCocktails.find(c => c.id === item.cocktailId);
       if (!cocktail) continue;
       for (const r of cocktail.recipe) {
         const prevAmt = consumedByIng.get(r.ingredientId) || 0;
@@ -354,7 +406,7 @@ export default function App() {
       }
     }
 
-    if (consumedByIng.size > 0) {
+    if (!isSpecialEvent && consumedByIng.size > 0) {
       setIngredients(prev =>
         prev.map(ing => {
           const usedAmount = consumedByIng.get(ing.id);
@@ -385,7 +437,7 @@ export default function App() {
       deletedOrders.current.add(orderId);
       setEvents(prev => prev.map(ev => ev.id === targetEventId ? { ...ev, orders: ev.orders.filter(o => o.id !== orderId) } : ev));
       // Only an unprepared order returns its recipe consumption to inventory.
-      if (!order.status || order.status === 'preparing') {
+      if (!isSpecialEvent && (!order.status || order.status === 'preparing')) {
         const returned = new Map<string, number>();
         for (const item of order.items) {
           for (const recipe of cocktails.find(c => c.id === item.cocktailId)?.recipe || []) {
@@ -411,7 +463,7 @@ export default function App() {
       })
     );
 
-    if (newWaste.ingredientId) {
+    if (!isSpecialEvent && newWaste.ingredientId) {
       setIngredients(prev =>
         prev.map(ing => {
           if (ing.id !== newWaste.ingredientId || !ing.volumePerUnitMl || ing.volumePerUnitMl <= 0) return ing;
@@ -430,25 +482,31 @@ export default function App() {
   };
 
   // Close event
-  const handleCloseEvent = (eventId: string) => {
+  const handleCloseEvent = async (eventId: string) => {
     const target = events.find(ev => ev.id === eventId);
-    const closedAt = Date.now();
-    setEvents(prev =>
-      prev.map(ev => {
-        if (ev.id === eventId) {
-          return {
-            ...ev,
-            status: 'closed' as const,
-            closedAt,
-          };
-        }
-        return ev;
-      })
-    );
-
-    if (target && isSupabaseConfigured()) {
-      syncEventToSupabase({ ...target, status: 'closed', closedAt }).catch(console.error);
-    }
+    if (!target || target.status === 'closed' || closingEvents.current.has(eventId)) return;
+    if (Object.values(outbox.queueRef.current).some(entry=>entry.eventId===eventId)) { setOrderSyncError('Hay pedidos pendientes de envío. Espera a recuperar la conexión antes de cerrar.'); return; }
+    const lines = consignmentSettlement(target,cocktails);
+    if (target.isConsignment && !lines.every(line=>line.valid)) { setOrderSyncError('El consumo supera los insumos asignados. Revisa el cierre.'); return; }
+    const closedAt=Date.now();
+    const closed:BarEvent={...target,status:'closed',closedAt,inventorySettledAt:target.isConsignment?closedAt:target.inventorySettledAt};
+    closingEvents.current.add(eventId);
+    try {
+      if (isSupabaseConfigured()) {
+        if (!navigator.onLine) throw new Error('Conéctate a internet para confirmar el cierre y evitar una devolución duplicada.');
+        await flushEventSaves();
+        if (eventSaves.current[eventId]) throw new Error('Los insumos del evento todavía están pendientes de sincronizar. Vuelve a intentar en unos segundos.');
+        if (!await claimEventClose(closed)) throw new Error('Este registro ya fue cerrado en otro dispositivo. Actualiza para ver su cierre.');
+      }
+      if (target.isConsignment && !target.inventorySettledAt) {
+        setIngredients(previous=>previous.map(ingredient=>{
+          const line=lines.find(l=>l.ingredient.id===ingredient.id);
+          return line ? {...ingredient,currentStockUnits:Number((ingredient.currentStockUnits+line.retainedUnits).toFixed(4))} : ingredient;
+        }).concat(lines.filter(line=>!previous.some(i=>i.id===line.ingredient.id)&&line.retainedUnits>0).map(line=>({...line.ingredient,currentStockUnits:line.retainedUnits,initialStockUnits:line.retainedUnits}))));
+      }
+      setEvents(previous=>previous.map(event=>event.id===eventId?closed:event));
+    } catch(error) { setOrderSyncError(error instanceof Error ? error.message : 'No se pudo confirmar el cierre. Revisa la conexión.'); }
+    finally { closingEvents.current.delete(eventId); }
   };
 
   // Save Event from Wizard / NewProjectModal
@@ -456,14 +514,16 @@ export default function App() {
     setEvents(prev => {
       const exists = prev.some(ev => ev.id === savedEvent.id);
       if (exists) {
-        return prev.map(ev => (ev.id === savedEvent.id ? savedEvent : ev));
+        return prev.map(ev => (ev.id === savedEvent.id ? {...savedEvent,orders:ev.orders,wastes:ev.wastes} : ev));
       }
       return [savedEvent, ...prev];
     });
     setActiveEventId(savedEvent.id);
+    setOperationMode(eventKind(savedEvent));
+    setCurrentView('resumen');
 
     if (isSupabaseConfigured()) {
-      syncEventToSupabase(savedEvent).catch(console.error);
+      queueEventSave(savedEvent);
     }
   };
 
@@ -530,14 +590,14 @@ export default function App() {
       {/* Light, Clean Top Header: Reduced by 80%, mode selector, 4 core views and settings dropdown */}
       <Header
         currentView={currentView}
-        onChangeView={setCurrentView}
+        onChangeView={view=>{if(view==='ventas')setMetricsPeriod('evento');setCurrentView(view);}}
         activeEvent={activeEvent}
         events={events}
-        onSelectEvent={setActiveEventId}
+        onSelectEvent={id=>{const event=events.find(e=>e.id===id);if(event)openOperation(event);}}
         businessProfile={businessProfile}
         preparingCount={preparingCount}
         operationMode={operationMode}
-        onChangeOperationMode={setOperationMode}
+        onChangeOperationMode={changeMode}
         onOpenPublicMenu={() => setIsPublicMenuOpen(true)}
         onOpenNewProjectModal={() => setIsNewProjectModalOpen(true)}
         onOpenPrinterModal={() => setIsPrinterModalOpen(true)}
@@ -549,15 +609,17 @@ export default function App() {
         onOpenChangePin={() => setIsChangePinOpen(true)}
       />
 
-      <OrderConnection state={connection} lastSync={lastSync} />
+      {currentView === 'preparacion' && <OrderConnection state={connection} lastSync={lastSync} />}
       {/* Main View Area: 100% Focused, Zero Visual Clutter */}
       <main className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
-        {currentView === 'carta_compras' ? (
+        {currentView === 'inicio' ? <OperationsDashboard events={events} onOpen={openOperation} onCreate={type=>{setNewProjectType(type);setIsNewProjectModalOpen(true);}} onMonth={()=>changeMode('mes')} />
+        : currentView === 'resumen' || (currentView === 'pdv' && activeEvent.status === 'closed') || (currentView === 'carta_compras' && isSpecialEvent) ? <OperationOverview key={activeEvent.id} event={activeEvent} cocktails={activeCocktails} catalog={ingredients} onOrders={()=>setCurrentView('pdv')} onMetrics={()=>{setMetricsPeriod('evento');setCurrentView('ventas');}} onSave={handleSaveEvent} onClose={()=>handleCloseEvent(activeEvent.id)} />
+        : currentView === 'carta_compras' ? (
           <CartaComprasScreen
-            cocktails={cocktails}
+            cocktails={activeCocktails}
             setCocktails={setCocktails}
-            ingredients={ingredients}
-            setIngredients={setIngredients}
+            ingredients={activeIngredients}
+            setIngredients={setActiveIngredients}
             businessProfile={businessProfile}
             setBusinessProfile={setBusinessProfile}
             onAddWaste={handleAddWaste}
@@ -566,28 +628,23 @@ export default function App() {
           <VentasScreen
             activeEvent={activeEvent}
             allEvents={events}
-            cocktails={cocktails}
-            ingredients={ingredients}
-            operationMode={operationMode}
-            onChangeOperationMode={setOperationMode}
+            cocktails={activeCocktails}
+            ingredients={activeIngredients}
+            operationMode={metricsPeriod}
+            onChangeOperationMode={setMetricsPeriod}
           />
         ) : currentView === 'preparacion' ? (
           <KdsScreen
             activeEvent={{ ...activeEvent, orders: activeEvent.orders.filter(o => !outbox.queue[o.id]) }}
-            onOrdersVisible={acknowledgeOrders}
             onDeleteOrder={handleDeleteOrder}
             onUpdateOrderStatus={handleUpdateOrderStatus}
             onGoToBarra={() => setCurrentView('pdv')}
           />
         ) : (
           <MenuScreen
-            cocktails={cocktails}
-            ingredients={ingredients}
+            cocktails={activeCocktails}
+            ingredients={activeIngredients}
             businessProfile={businessProfile}
-            activeOrders={activeEvent.orders}
-            outbox={outbox.queue}
-            receivedOrders={receivedOrders}
-            onRetryOrders={() => void outbox.retry()}
             onAddOrder={handleAddOrder}
             onGoToCartaCompras={() => setCurrentView('carta_compras')}
           />
@@ -602,15 +659,19 @@ export default function App() {
       <RecipeCostMatrixModal
         isOpen={isRecipeMatrixOpen}
         onClose={() => setIsRecipeMatrixOpen(false)}
-        cocktails={cocktails}
+        cocktails={activeCocktails}
         setCocktails={setCocktails}
-        ingredients={ingredients}
-        setIngredients={setIngredients}
+        ingredients={activeIngredients}
+        setIngredients={setActiveIngredients}
         businessProfile={businessProfile}
       />
 
       {/* Nuevo Proyecto / Turno */}
       <NewProjectModal
+        key={`${isNewProjectModalOpen}-${newProjectType}`}
+        initialType={newProjectType}
+        cocktails={cocktails}
+        ingredients={ingredients}
         isOpen={isNewProjectModalOpen}
         onClose={() => setIsNewProjectModalOpen(false)}
         onSaveEvent={handleSaveEvent}
@@ -620,7 +681,7 @@ export default function App() {
       <OlaClickExcelModal
         isOpen={isMenuExcelOpen}
         onClose={() => setIsMenuExcelOpen(false)}
-        cocktails={cocktails}
+        cocktails={activeCocktails}
         setCocktails={setCocktails}
         businessProfile={businessProfile}
       />
@@ -630,9 +691,9 @@ export default function App() {
         isOpen={isAssistantOpen}
         onClose={() => setIsAssistantOpen(false)}
         activeEvent={activeEvent}
-        cocktails={cocktails}
-        ingredients={ingredients}
-        setIngredients={setIngredients}
+        cocktails={activeCocktails}
+        ingredients={activeIngredients}
+        setIngredients={setActiveIngredients}
         onAddOrder={handleAddOrder}
         onAddWaste={handleAddWaste}
       />
@@ -642,9 +703,9 @@ export default function App() {
         isOpen={isManagementOpen}
         onClose={() => setIsManagementOpen(false)}
         activeEvent={activeEvent}
-        cocktails={cocktails}
-        ingredients={ingredients}
-        setIngredients={setIngredients}
+        cocktails={activeCocktails}
+        ingredients={activeIngredients}
+        setIngredients={setActiveIngredients}
         onCloseEvent={handleCloseEvent}
         onAddWaste={handleAddWaste}
       />
@@ -653,9 +714,9 @@ export default function App() {
       <MenuEditorModal
         isOpen={isMenuEditorOpen}
         onClose={() => setIsMenuEditorOpen(false)}
-        cocktails={cocktails}
+        cocktails={activeCocktails}
         setCocktails={setCocktails}
-        ingredients={ingredients}
+        ingredients={activeIngredients}
         onOpenEditCocktail={handleOpenEditCocktail}
       />
 
@@ -668,7 +729,7 @@ export default function App() {
         }}
         cocktail={cocktailToEdit}
         onSave={handleSaveCocktail}
-        ingredients={ingredients}
+        ingredients={activeIngredients}
       />
 
       {/* Configuración de Evento / Stock Inicial */}
@@ -678,8 +739,8 @@ export default function App() {
           setIsEventWizardOpen(false);
           setWizardTargetEvent(undefined);
         }}
-        ingredients={ingredients}
-        cocktails={cocktails}
+        ingredients={activeIngredients}
+        cocktails={activeCocktails}
         setCocktails={setCocktails}
         existingEvent={wizardTargetEvent}
         onSaveEvent={handleSaveEvent}
@@ -691,7 +752,7 @@ export default function App() {
         onClose={() => setIsBusinessOnboardingOpen(false)}
         businessProfile={businessProfile}
         onSaveProfile={handleSaveBusinessProfile}
-        cocktails={cocktails}
+        cocktails={activeCocktails}
         setCocktails={setCocktails}
         onOpenEventWizard={() => {
           setWizardTargetEvent(activeEvent);
@@ -705,7 +766,7 @@ export default function App() {
         isOpen={isPublicMenuOpen}
         onClose={() => setIsPublicMenuOpen(false)}
         businessProfile={businessProfile}
-        cocktails={cocktails}
+        cocktails={activeCocktails}
         onOpenEditProfile={() => setIsBusinessOnboardingOpen(true)}
       />
 

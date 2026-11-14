@@ -143,3 +143,16 @@ export function exportEventToExcel(event: BarEvent, cocktails: Cocktail[], ingre
   const filename = `altura_cierre_evento_${safeName}_${event.date}.xlsx`;
   XLSX.writeFile(wb, filename);
 }
+
+export function exportOperationsSummary(events: BarEvent[], label: string, costs: (event: BarEvent) => number) {
+  const wb = XLSX.utils.book_new();
+  const summary = [['ALTURA · Resultados por operación'],[label],[],['Fecha','Tipo','Registro','Pedidos','Ventas S/','Costo S/','Margen bruto estimado S/']];
+  const rows = events.map(event=>{
+    const revenue=event.orders.filter(order=>order.orderType==='venta').reduce((sum,order)=>sum+order.totalAmount,0);
+    const cost=costs(event);
+    return [event.date,event.operationType==='evento'||event.isConsignment?'Evento':'Día a día',event.name,event.orders.length,revenue,cost,revenue-cost];
+  });
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([...summary,...rows]),'Resultados separados');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(events.flatMap(event=>event.orders.map(order=>({Registro:event.name,Fecha:event.date,Pedido:order.id,Tipo:order.orderType,Pago:order.paymentMethod,Total:order.totalAmount})))),'Pedidos');
+  XLSX.writeFile(wb,'Altura_resultados_por_operacion.xlsx');
+}
