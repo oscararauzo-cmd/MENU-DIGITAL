@@ -17,7 +17,7 @@ export function selectPeriodEvents(events: BarEvent[], active: BarEvent, period:
 // This lets older databases store isolated inventory without a schema migration.
 export function encodeEventSnapshot(event: BarEvent) {
   return { ...event.initialIngredientsSnapshot, __altura_context: {
-    version: 1, operationType: event.operationType, deletedAt:event.deletedAt, trashExpiresAt:event.trashExpiresAt, statusBeforeTrash:event.statusBeforeTrash, isConsignment: event.isConsignment,
+    version: 1, inventoryMode:event.inventoryMode||'deferred', operationType: event.operationType, deletedAt:event.deletedAt, trashExpiresAt:event.trashExpiresAt, statusBeforeTrash:event.statusBeforeTrash, isConsignment: event.isConsignment,
     organizerName: event.organizerName, consignmentNotes: event.consignmentNotes,
     retainedStockUsage:event.retainedStockUsage, inventory: event.inventory || [], recipeSnapshot: event.recipeSnapshot, menuCategories: event.menuCategories, inventorySettledAt: event.inventorySettledAt,
   } };
@@ -26,6 +26,7 @@ export function decodeEventSnapshot(raw: unknown): Partial<BarEvent> & Pick<BarE
   const snapshot = typeof raw === 'string' ? JSON.parse(raw) : raw || {};
   const { __altura_context: meta, ...stock } = snapshot as Record<string, any>;
   return { initialIngredientsSnapshot: Object.fromEntries(Object.entries(stock).filter(([,value]) => typeof value === 'number')), ...(meta?.version === 1 ? {
+    inventoryMode:meta.inventoryMode==='tracked'?'tracked':'deferred',
     operationType: meta.operationType==='evento'?'evento':meta.operationType==='dia'?'dia':undefined,
     deletedAt:meta.deletedAt,trashExpiresAt:meta.trashExpiresAt,statusBeforeTrash:meta.statusBeforeTrash,
     isConsignment: Boolean(meta.isConsignment), organizerName: meta.organizerName,

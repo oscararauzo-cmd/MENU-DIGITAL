@@ -1,3 +1,5 @@
+import { prepareOperationalOrder } from './utils/orderMode';
+import { saveProtectedEvents } from './utils/eventBackups';
 import { useCatalogSync } from './hooks/useCatalogSync';
 import { mergeCatalogQueue,restoreCatalogQueue } from './lib/catalogOutbox';
 import { captureStockUsage, usageForOrder, applyStockUsage, validateStock, wastePackages, deleteOrderFromEvent } from './utils/inventoryLedger';
@@ -236,6 +238,7 @@ export default function App() {
         }
         setCatalogHydrated(true);
 
+        try { saveProtectedEvents(events); } catch (error) { console.error("No se pudo guardar el respaldo adicional", error); }
         if (remote.events && remote.events.length > 0) {
           knownRemoteOrders.current = new Set(remote.events.flatMap(e => e.orders.map(o => o.id)));
           setEvents(previous => remote.events!.map(event => {
@@ -317,6 +320,7 @@ export default function App() {
   }, [businessProfile, catalogHydrated]);
 
   useEffect(() => {
+    try { saveProtectedEvents(events); } catch (error) { console.error('No se pudo guardar el respaldo adicional', error); }
     try {
       localStorage.setItem('altura_events_v3', JSON.stringify(events));
     } catch (e) {
@@ -429,8 +433,7 @@ export default function App() {
   // Add order to active event & auto-deduct consumed stock from Bodega
   const handleAddOrder = (newOrder: Order) => {
     if (activeEvent.status !== 'active') throw new Error('Este registro está cerrado. Abre una jornada o evento desde Inicio.');
-    newOrder={...newOrder,stockUsage:captureStockUsage(newOrder,activeCocktails,activeIngredients)};
-    validateStock(newOrder.stockUsage!,activeIngredients);
+    newOrder=prepareOperationalOrder(newOrder,activeEvent,activeCocktails,activeIngredients);
     if (sessionOrderIds.current.has(newOrder.id)) return;
     if (isSupabaseConfigured()) outbox.enqueue(newOrder, activeEvent.id, {...activeEvent,orders:[],wastes:[]});
     sessionOrderIds.current.add(newOrder.id);
@@ -615,7 +618,7 @@ export default function App() {
   const preparingCount = activeEvent.orders.filter(o => !o.status || o.status === 'preparing').length;
 
   return (
-    <div className="flex flex-col h-dvh w-full overflow-hidden bg-[#faf8f5] text-stone-900 font-sans antialiased selection:bg-orange-500 selection:text-white">
+    <div className="app-shell flex flex-col h-dvh w-full overflow-hidden bg-[#faf8f5] text-stone-900 font-sans antialiased selection:bg-orange-500 selection:text-white">
       {/* Light, Clean Top Header: Reduced by 80%, mode selector, 4 core views and settings dropdown */}
       <Header
         currentView={currentView}

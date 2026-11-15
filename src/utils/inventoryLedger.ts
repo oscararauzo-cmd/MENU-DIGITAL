@@ -44,8 +44,8 @@ export function deleteOrderFromEvent(event:BarEvent,order:Order,cocktails:Cockta
 }
 // Store optional stock snapshots in the existing notes TEXT field without a schema migration.
 const prefix='@altura-order-v1:';
-export function encodeOrderNotes(order:Order):string{return order.stockUsage?prefix+JSON.stringify({notes:order.notes||'',stockUsage:order.stockUsage}):order.notes||'';}
-export function decodeOrderNotes(raw:string):Pick<Order,'notes'|'stockUsage'>{
- if(raw?.startsWith(prefix)){try{const parsed=JSON.parse(raw.slice(prefix.length));if(Array.isArray(parsed.stockUsage))return {notes:parsed.notes||undefined,stockUsage:parsed.stockUsage};}catch{}}
+export function encodeOrderNotes(order:Order):string{return order.stockUsage?prefix+JSON.stringify({notes:order.notes||'',stockUsage:order.stockUsage,inventoryDeferred:order.inventoryDeferred}):order.notes||'';}
+export function decodeOrderNotes(raw:string):Pick<Order,'notes'|'stockUsage'|'inventoryDeferred'>{
+ if(raw?.startsWith(prefix)){try{const parsed=JSON.parse(raw.slice(prefix.length));if(Array.isArray(parsed.stockUsage))return {notes:parsed.notes||undefined,stockUsage:parsed.stockUsage,...(parsed.inventoryDeferred!==undefined?{inventoryDeferred:parsed.inventoryDeferred}:{})};}catch{}}
  return {notes:raw||undefined};
 }

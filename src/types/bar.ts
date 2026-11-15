@@ -82,6 +82,7 @@ export interface StockUsage {
 }
 
 export interface Order {
+  inventoryDeferred?: boolean;
   stockUsage?: StockUsage[];
   id: string;
   timestamp: number;
@@ -114,6 +115,7 @@ export interface EventInventoryLine {
 }
 
 export interface BarEvent {
+  inventoryMode?: 'deferred'|'tracked';
   retainedStockUsage?: StockUsage[];
   deletedAt?: number;
   trashExpiresAt?: number;

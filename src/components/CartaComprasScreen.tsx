@@ -271,7 +271,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
       category: newProdCat,
       price: Math.max(0,parseLocalNumber(newProdPrice)),
       description: 'Producto registrado en carta.',
-      recipe: ingredients[0] ? [{ ingredientId: ingredients[0].id, amount: 60 }] : [],
+      recipe: [],
       enabledForEvent: true,
       illustrationKey: 'pisco-sour',
       colorGradient: 'from-amber-400 to-orange-500',
