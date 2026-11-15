@@ -1,5 +1,6 @@
+import { recipeConsumption } from '../utils/packaging';
 import React, { useState } from 'react';
-import { Cocktail, Ingredient, CocktailCategory } from '../types/bar';
+import { Cocktail, Ingredient, CocktailCategory, RecipeItem } from '../types/bar';
 import { calculateCocktailUnitCost, getIngredientCostPerMl } from '../utils/calculations';
 import {
   X,
@@ -18,19 +19,19 @@ interface EditCocktailModalProps {
   ingredients: Ingredient[];
 }
 
-export const EditCocktailModal: React.FC<EditCocktailModalProps> = ({
+const EditCocktailForm: React.FC<EditCocktailModalProps & {cocktail: Cocktail}> = ({
   isOpen,
   onClose,
   cocktail,
   onSave,
   ingredients,
 }) => {
-  if (!isOpen || !cocktail) return null;
+
 
   const [name, setName] = useState(cocktail.name);
   const [category, setCategory] = useState<CocktailCategory>(cocktail.category);
   const [price, setPrice] = useState(cocktail.price.toString());
-  const [recipe, setRecipe] = useState<{ ingredientId: string; amount: number }[]>(
+  const [recipe, setRecipe] = useState<RecipeItem[]>(
     cocktail.recipe.length > 0
       ? cocktail.recipe
       : [{ ingredientId: ingredients[0]?.id || '', amount: 60 }]
@@ -57,7 +58,7 @@ export const EditCocktailModal: React.FC<EditCocktailModalProps> = ({
     const ing = ingredients.find(i => i.id === item.ingredientId);
     if (!ing) return total;
     const costPerMl = getIngredientCostPerMl(ing);
-    return total + costPerMl * item.amount;
+    return total + costPerMl * recipeConsumption(item,ing);
   }, 0);
 
   const priceNum = parseFloat(price) || 0;
@@ -229,3 +230,5 @@ export const EditCocktailModal: React.FC<EditCocktailModalProps> = ({
     </div>
   );
 };
+
+export const EditCocktailModal: React.FC<EditCocktailModalProps> = props => props.isOpen && props.cocktail ? <EditCocktailForm {...props} cocktail={props.cocktail}/> : null;

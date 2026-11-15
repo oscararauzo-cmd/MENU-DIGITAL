@@ -34,6 +34,7 @@ interface HeaderProps {
   onOpenPrinterModal: () => void;
   onOpenAssistant: () => void;
   onOpenGuide: () => void;
+  onOpenManagement?:()=>void;
   onOpenMenuExcel: () => void;
   onOpenOnboarding: () => void;
   onLockApp?: () => void;
@@ -50,7 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenPublicMenu,
   onOpenPrinterModal,
   onOpenAssistant,
-  onOpenGuide,
+  onOpenGuide,onOpenManagement,
   onOpenMenuExcel,
   onOpenOnboarding,
   onLockApp,
@@ -68,9 +69,10 @@ export const Header: React.FC<HeaderProps> = ({
 
     };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+  return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const editableContext=activeEvent.status==='active'&&!['inicio','papelera'].includes(currentView)&&contextLabel!=='Panorama general';
   return (
     <header className="px-3 sm:px-5 py-2 flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 border-b border-stone-200 bg-white sticky top-0 z-30 select-none shadow-2xs font-sans shrink-0">
       {/* LEFT: Brand Logo + Operation Mode Selector (Día a Día / Mes / Evento) */}
@@ -199,7 +201,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>Impresora POS-D 230</span>
               </button>
 
-              <button
+              <button disabled={!editableContext}
                 onClick={() => {
                   setIsSettingsMenuOpen(false);
                   onOpenAssistant();
@@ -232,6 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>Guía Paso a Paso</span>
               </button>
 
+              {onOpenManagement&&<button disabled={!editableContext} onClick={()=>{setIsSettingsMenuOpen(false);onOpenManagement();}} className="w-full min-h-11 flex items-center gap-2.5 px-3 py-2 rounded-xl text-stone-700 hover:bg-stone-50 font-bold text-left disabled:opacity-40"><BookOpen className="w-4 h-4 text-orange-500"/>Mermas y movimientos de stock</button>}
               <div className="pt-1 mt-1 border-t border-stone-100">
                 <button
                   onClick={() => {

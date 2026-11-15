@@ -1,5 +1,5 @@
 import { visibleOperations } from '../utils/operationTrash';
-import { selectPeriodEvents, eventKind, limaDate, consignmentSettlement } from '../utils/operationContext';
+import { selectPeriodEvents, eventKind, limaDate, consignmentSettlement, operationCost } from '../utils/operationContext';
 import React, { useState, useMemo, useEffect } from 'react';
 import { BarEvent, Cocktail, Ingredient } from '../types/bar';
 import { exportEventToExcel, exportOperationsSummary } from '../utils/excelExport';
@@ -81,9 +81,7 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
 
   // Estimated costs
   const periodIngredientCost = useMemo(() => {
-    return relevantEvents.reduce((total,event) => total + (event.isConsignment && event.inventory?.length
-      ? consignmentSettlement(event,cocktails).reduce((sum,line)=>sum+line.cost,0)
-      : event.orders.reduce((sum,o)=>sum+o.items.reduce((n,item)=>n+item.unitCost*item.quantity,0),0)),0);
+    return relevantEvents.reduce((total,event)=>total+operationCost(event,cocktails),0);
   }, [relevantEvents,cocktails]);
 
   const periodNetProfit = periodTotalRevenue - periodIngredientCost;
@@ -110,7 +108,7 @@ export const VentasScreen: React.FC<VentasScreenProps> = ({
   const handleDownloadExcel = () => {
     setIsExporting(true);
     try {
-      exportOperationsSummary(relevantEvents, period === 'mes' ? `Mes ${limaDate().slice(0,7)}` : activeEvent.name, event => event.isConsignment && event.inventory?.length ? consignmentSettlement(event,cocktails).reduce((sum,line)=>sum+line.cost,0) : event.orders.reduce((sum,order)=>sum+order.items.reduce((n,item)=>n+item.unitCost*item.quantity,0),0));
+      exportOperationsSummary(relevantEvents, scope==='general'?(period==='mes'?`Mes ${limaDate().slice(0,7)}`:`Día ${limaDate()}`):activeEvent.name,event=>operationCost(event,cocktails));
     } finally {
       setTimeout(() => setIsExporting(false), 800);
     }

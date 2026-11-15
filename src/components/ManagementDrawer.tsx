@@ -54,8 +54,8 @@ export const ManagementDrawer: React.FC<ManagementDrawerProps> = ({
   const [wasteQty, setWasteQty] = useState('1');
   const [wasteReason, setWasteReason] = useState<WasteRecord['reason']>('rotura');
 
+  const [actionError,setActionError]=useState('');
   if (!isOpen) return null;
-
   const metrics = calculateEventMetrics(activeEvent, cocktails, ingredients);
   const parsedSunat = parseFloat(sunatFiscal) || 0;
   const matchDifference = parsedSunat > 0 ? metrics.totalRevenue - parsedSunat : 0;
@@ -94,7 +94,8 @@ export const ManagementDrawer: React.FC<ManagementDrawerProps> = ({
     e.preventDefault();
     const ing = ingredients.find(i => i.id === wasteIngId);
     if (!ing) return;
-    const qty = parseFloat(wasteQty) || 1;
+    const qty = Number(wasteQty);
+    if(!Number.isFinite(qty)||qty<=0){setActionError('Ingresa una cantidad mayor que cero.');return;}
 
     const newWaste: WasteRecord = {
       id: `wst-${Date.now()}`,
@@ -108,13 +109,13 @@ export const ManagementDrawer: React.FC<ManagementDrawerProps> = ({
       notes: 'Registrado desde panel de mermas',
     };
 
-    onAddWaste(newWaste);
-    setIsAddingWaste(false);
+    try{onAddWaste(newWaste);setActionError('');setIsAddingWaste(false);}catch(error){setActionError(error instanceof Error?error.message:'No se pudo registrar la merma.');}
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex justify-end animate-fade-in">
       <div className="w-full sm:w-[600px] h-full bg-white text-stone-900 border-l-2 border-orange-200 flex flex-col shadow-2xl overflow-hidden">
+        {actionError&&<p role="alert" className="p-3 bg-rose-50 text-rose-800 text-xs">{actionError}</p>}
         {/* Header */}
         <div className="p-5 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 text-white flex items-center justify-between shadow-md">
           <div className="flex items-center gap-3">

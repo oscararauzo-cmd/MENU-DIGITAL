@@ -5,7 +5,7 @@ import { isSupabaseConfigured } from '../lib/supabase';
 
 interface KdsScreenProps {
   activeEvent: BarEvent;
-  onUpdateOrderStatus?: (orderId: string, status: OrderPreparationStatus) => void;
+  onUpdateOrderStatus?: (orderId: string, status: OrderPreparationStatus) => void | Promise<void>;
   onDeleteOrder?: (orderId: string) => Promise<void>;
   onGoToBarra?: () => void;
 }
@@ -30,6 +30,8 @@ export const KdsScreen: React.FC<KdsScreenProps> = ({ activeEvent, onUpdateOrder
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [updating,setUpdating]=useState<string|null>(null);
+  const [statusError,setStatusError]=useState('');
   const [filter, setFilter] = useState<OrderPreparationStatus>('preparing');
   const [notice, setNotice] = useState('');
   const [permission, setPermission] = useState(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
@@ -75,6 +77,7 @@ export const KdsScreen: React.FC<KdsScreenProps> = ({ activeEvent, onUpdateOrder
       <p className="text-xs text-stone-500">{isSupabaseConfigured() ? 'Actualización automática cada 5 segundos. Mantén esta pantalla abierta en el celular.' : 'Modo local: los pedidos solo están disponibles en este dispositivo. Configura la conexión para usar tablet y celular.'}</p>
       {soundError && <p role="status" className="text-xs text-amber-800">{soundError}</p>}
       {permission === 'denied' && <p className="text-xs text-stone-500">Avisos del navegador bloqueados. Los nuevos pedidos se muestran aquí.</p>}
+      {statusError&&<p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800">{statusError}</p>}
       {notice && <div role="status" className="flex justify-between items-center gap-2 p-3 rounded-xl bg-orange-100 text-orange-900"><span>{notice}</span><button className="p-2 font-bold" onClick={() => { setFilter('preparing'); setNotice(''); }}>Ver pedidos</button></div>}
       <div className="grid grid-cols-3 sm:flex gap-2 pb-1">{(Object.keys(labels) as OrderPreparationStatus[]).map(status => <button key={status} onClick={() => setFilter(status)} className={`min-w-0 min-h-12 px-2 sm:px-4 rounded-2xl text-[11px] sm:text-sm font-extrabold ${filter === status ? 'bg-orange-600 text-white shadow-sm shadow-orange-500/20' : 'bg-stone-100 text-stone-600 border border-stone-200'}`}>
         {labels[status]} ({activeEvent.orders.filter(o => (o.status || 'preparing') === status).length})
@@ -86,8 +89,8 @@ export const KdsScreen: React.FC<KdsScreenProps> = ({ activeEvent, onUpdateOrder
         <div className={`p-4 border-b flex flex-wrap items-center justify-between gap-2 ${filter === 'preparing' ? 'bg-orange-50/70 border-orange-100' : 'bg-emerald-50/70 border-emerald-100'}`}><strong className="font-mono text-sm tracking-tight">Pedido {order.id.replace('ORD-', '').slice(-8).toUpperCase()}</strong><span className="text-xs font-mono font-bold text-stone-500 flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{Math.max(0, Math.floor((Date.now() - order.timestamp) / 60000))} min</span></div>
         <ul className="p-4 space-y-3">{order.items.map((item, i) => <li key={i} className="flex items-center gap-3 rounded-xl bg-stone-50 border border-stone-200/80 p-3"><strong className="w-8 h-8 rounded-xl bg-orange-600 text-white font-mono flex items-center justify-center shrink-0">{item.quantity}×</strong><span className="font-extrabold text-sm break-words min-w-0">{item.cocktailName}</span></li>)}</ul>
         {order.notes && <p className="mx-4 mb-4 p-3 rounded-xl bg-amber-50 text-sm">{order.notes}</p>}
-        <div className="p-3 bg-stone-50 border-t border-stone-200 space-y-2">{filter === 'delivered' ? <p className="text-center text-emerald-700 font-bold">Pedido entregado</p> : <button disabled={!onUpdateOrderStatus} onClick={() => onUpdateOrderStatus?.(order.id, filter === 'preparing' ? 'ready' : 'delivered')} className="w-full min-h-12 p-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-sm shadow-emerald-600/20 flex items-center justify-center gap-2 transition active:scale-95">{filter === 'preparing' ? 'Pedido listo' : 'Pedido entregado'}</button>}
-          {onDeleteOrder && (deleteId === order.id ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 space-y-2">
+        <div className="p-3 bg-stone-50 border-t border-stone-200 space-y-2">{filter === 'delivered' ? <p className="text-center text-emerald-700 font-bold">Pedido entregado</p> : <button disabled={!onUpdateOrderStatus||updating!==null||activeEvent.status!=='active'} onClick={async()=>{setUpdating(order.id);setStatusError('');try{await onUpdateOrderStatus?.(order.id,filter==='preparing'?'ready':'delivered');}catch(error){setStatusError(error instanceof Error?error.message:'No se pudo actualizar.');}finally{setUpdating(null);}}} className="w-full min-h-12 p-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-sm shadow-emerald-600/20 flex items-center justify-center gap-2 transition active:scale-95">{filter === 'preparing' ? 'Pedido listo' : 'Pedido entregado'}</button>}
+          {onDeleteOrder && activeEvent.status==='active' && (deleteId === order.id ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 space-y-2">
             <p className="text-xs font-bold text-rose-900">¿Eliminar este pedido?</p>
             <p className="text-xs text-rose-800">Se quitará también de ventas. {(!order.status || order.status === 'preparing') ? 'Se devolverán los insumos al inventario; confirma solo si aún no se preparó.' : 'Los insumos consumidos no se devolverán al inventario.'}</p>
             {deleteError && <p role="alert" className="text-xs text-rose-800">{deleteError}</p>}

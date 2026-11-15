@@ -1,3 +1,4 @@
+import { parseLocalNumber } from '../utils/importNumbers';
 import { copyProductsToEvent, copyEventIngredientDefinitions } from '../utils/eventMenu';
 import { IngredientPackagingForm } from './IngredientPackagingForm';
 import { packageUnits, unitsInPackage, containerVolume, packagingDescription, stockDescription, presentationLabel, recipeConsumption } from '../utils/packaging';
@@ -30,6 +31,8 @@ import { planIngredientDeletion } from '../utils/ingredientDeletion';
 import { HelpTutorialModal } from './HelpTutorialModal';
 
 interface CartaComprasScreenProps {
+  readOnly?: boolean;
+  frozenPresentationIds?:string[];
   inventoryScope?: 'bar' | 'evento';
   contextName?: string;
   contextId?: string;
@@ -45,7 +48,7 @@ interface CartaComprasScreenProps {
 }
 
 export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
-  inventoryScope = 'bar', contextName, contextId = 'evento', barCocktails = [], ingredientCatalog = [],
+  readOnly=false, frozenPresentationIds=[], inventoryScope = 'bar', contextName, contextId = 'evento', barCocktails = [], ingredientCatalog = [],
   cocktails,
   setCocktails,
   ingredients,
@@ -127,6 +130,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
   const deleteLock = useRef(false);
   const handleDeleteIngredient = async (ingredient: Ingredient) => {
     if (deleteLock.current) return;
+    if(inventoryScope==='evento'&&frozenPresentationIds.includes(ingredient.id)){setDeleteError('Este insumo ya tiene consumo o presentaciones abiertas. Se conserva para cuadrar el cierre; puedes quitar los insumos que todavía no se usaron.');return;}
     deleteLock.current = true;
     setDeleteBusy(true);
     setDeleteError('');
@@ -265,7 +269,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
       id: `cocktail-${Date.now()}`,
       name: newProdName.trim(),
       category: newProdCat,
-      price: parseFloat(newProdPrice) || 25,
+      price: Math.max(0,parseLocalNumber(newProdPrice)),
       description: 'Producto registrado en carta.',
       recipe: ingredients[0] ? [{ ingredientId: ingredients[0].id, amount: 60 }] : [],
       enabledForEvent: true,
@@ -310,6 +314,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
   };
 
   const savePresentation = (ingredient:Ingredient) => {
+    if(frozenPresentationIds.includes(ingredient.id)){setStatusMessage('Este insumo ya tiene consumo o aperturas. Su presentación se conserva para no cambiar la liquidación.');return;}
     const previous=ingredients.find(i=>i.id===ingredient.id);
     // Legacy count-based recipes (e.g. 1 beer) remain count-based after grouping into packs.
     if(previous?.volumePerUnitMl===1&&ingredient.volumePerUnitMl!==1) {
@@ -496,23 +501,23 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
 
           const packageCost =
             costIdx !== -1
-              ? parseFloat(String(row[costIdx]).replace(/[^0-9.]/g, '')) || 0
-              : parseFloat(String(row[3])) || 0;
+              ? parseLocalNumber(row[costIdx])
+              : parseLocalNumber(row[3]);
 
           const volumePerUnitMl =
-            volumeIdx !== -1 ? parseFloat(String(row[volumeIdx])) || 750 : 750;
+            volumeIdx !== -1 ? parseLocalNumber(row[volumeIdx],750) : 750;
 
           const currentStockUnits =
-            stockIdx !== -1 ? parseFloat(String(row[stockIdx])) || 0 : parseFloat(String(row[5])) || 0;
+            stockIdx !== -1 ? parseLocalNumber(row[stockIdx]) : parseLocalNumber(row[5]);
 
           const minAlertUnits =
-            minIdx !== -1 ? parseFloat(String(row[minIdx])) || 2 : 2;
+            minIdx !== -1 ? parseLocalNumber(row[minIdx],2) : 2;
 
           const existing = ingredients.find(ing => ing.name.toLowerCase() === name.toLowerCase());
           const id = existing?.id || `ing-${Date.now()}-${i}`;
 
           const packageCount = countIdx!==-1 ? Math.max(1,Math.floor(Number(row[countIdx])||1)) : unit==='sixpack'?6:1;
-          const perContainer = containerIdx!==-1 ? Number(row[containerIdx]) : 0;
+          const perContainer = containerIdx!==-1 ? parseLocalNumber(row[containerIdx]) : 0;
           parsedIngredients.push({
             id,
             name,
@@ -549,6 +554,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
 
   return (
     <div className="flex-1 min-h-0 h-full flex flex-col bg-[#faf8f5] text-stone-900 overflow-hidden font-sans">
+      {readOnly&&<p className="px-4 py-2 text-xs bg-stone-100 text-stone-600 shrink-0">Operación cerrada · puedes consultar la carta, los insumos y descargar Excel.</p>}
       {statusMessage && (
         <div className="bg-emerald-600 text-white px-4 py-2 text-xs font-bold text-center shadow-sm animate-fade-in flex items-center justify-center gap-2 shrink-0">
           <Check className="w-4 h-4" />
@@ -600,7 +606,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
           </button>
 
           <input
-            type="file"
+            type="file" disabled={readOnly}
             ref={fileInputRef}
             onChange={handleImportExcel}
             accept=".xlsx, .xls, .csv"
@@ -628,13 +634,13 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
       </div>
 
       {/* TAB 1: CARTA, PRECIOS & RECETAS */}
-      {activeTab==='carta'&&inventoryScope==='evento'&&<section className="px-4 sm:px-6 py-3 border-b border-orange-100 bg-orange-50/50 shrink-0 space-y-3">
+      {activeTab==='carta'&&inventoryScope==='evento'&&!readOnly&&<section className="px-4 sm:px-6 py-3 border-b border-orange-100 bg-orange-50/50 shrink-0 space-y-3">
         <div className="flex flex-wrap justify-between items-center gap-2"><p className="text-xs text-orange-950"><strong>Carta exclusiva de {contextName}.</strong> Crea sus productos o elige cuáles copiar del bar. Sus cambios no afectan la carta habitual. Las recetas copiadas traen sus insumos con cantidad cero.</p><button onClick={()=>setChoosingBarProducts(value=>!value)} className="min-h-11 px-3 rounded-xl border border-orange-200 bg-white text-orange-800 text-xs font-bold">{choosingBarProducts?'Cerrar selección':'Elegir productos del bar'}</button></div>
         {choosingBarProducts&&<div className="rounded-2xl border border-stone-200 bg-white p-3 space-y-3"><div className="max-h-48 overflow-y-auto grid sm:grid-cols-2 gap-2">{barCocktails.map(product=>{const exists=cocktails.some(c=>c.sourceCocktailId===product.id||c.id===product.id);return <label key={product.id} className="flex items-center gap-2 min-h-11 text-xs font-bold"><input type="checkbox" disabled={exists} checked={exists||selectedBarProducts.includes(product.id)} onChange={e=>setSelectedBarProducts(previous=>e.target.checked?[...previous,product.id]:previous.filter(id=>id!==product.id))} className="w-5 h-5 accent-orange-600"/>{product.name}{exists?' · ya en el evento':''}</label>;})}</div><button disabled={!selectedBarProducts.length} onClick={()=>{setCocktails(current=>copyProductsToEvent(current,barCocktails,selectedBarProducts,contextId));setIngredients(current=>copyEventIngredientDefinitions(current,ingredientCatalog,barCocktails.filter(product=>selectedBarProducts.includes(product.id))));setSelectedBarProducts([]);setChoosingBarProducts(false);}} className="min-h-12 px-4 rounded-xl bg-orange-600 text-white font-bold text-xs disabled:opacity-40">Copiar seleccionados al evento</button></div>}
       </section>}
 
       {activeTab === 'carta' && (
-        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden"><fieldset disabled={readOnly} className="contents">
           {/* Left Column: Product List */}
           <div className="w-full md:w-5/12 lg:w-4/12 bg-white border-b md:border-b-0 md:border-r border-stone-200 flex flex-col overflow-hidden max-h-[38dvh] md:max-h-none min-h-0">
             <div className="p-3 border-b border-stone-200 space-y-2 shrink-0">
@@ -1176,12 +1182,12 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
               <div className="p-8 text-center text-stone-400">Selecciona o crea un producto</div>
             )}
           </div>
-        </div>
+        </fieldset></div>
       )}
 
       {/* TAB 2: COMPRAS DE INSUMOS & BODEGA */}
       {activeTab === 'compras' && (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-5 max-w-4xl mx-auto w-full">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-5 max-w-4xl mx-auto w-full"><fieldset disabled={readOnly} className="contents">
           {/* Purchase Fast Form */}
           <div className="p-5 rounded-3xl bg-white border border-stone-200 shadow-xs space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1344,7 +1350,7 @@ export const CartaComprasScreen: React.FC<CartaComprasScreenProps> = ({
               ))}
             </div>
           </div>
-        </div>
+        </fieldset></div>
       )}
 
       {/* Mini-Tutorial Modal */}

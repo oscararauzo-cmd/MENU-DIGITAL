@@ -1,3 +1,4 @@
+import { mergeMenuImport } from '../utils/menuImport';
 import React, { useState } from 'react';
 import { Cocktail, BusinessProfile } from '../types/bar';
 import {
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 
 interface OlaClickExcelModalProps {
+  readOnly?:boolean;
   isOpen: boolean;
   onClose: () => void;
   cocktails: Cocktail[];
@@ -32,6 +34,7 @@ interface OlaClickExcelModalProps {
 }
 
 export const OlaClickExcelModal: React.FC<OlaClickExcelModalProps> = ({
+  readOnly=false,
   isOpen,
   onClose,
   cocktails,
@@ -55,7 +58,7 @@ export const OlaClickExcelModal: React.FC<OlaClickExcelModalProps> = ({
   const handleDownload = () => {
     setIsProcessing(true);
     try {
-      exportOlaClickExcel(cocktails, businessProfile.name || 'ALTURA');
+      exportOlaClickExcel(cocktails, businessProfile.name || 'ALTURA',products,modifiers);
       setStatusMessage('✓ Archivo "Plantilla_Menu_Bar.xlsx" descargado exitosamente.');
       setTimeout(() => setStatusMessage(null), 4000);
     } catch (e: any) {
@@ -98,11 +101,7 @@ export const OlaClickExcelModal: React.FC<OlaClickExcelModalProps> = ({
         imageUrl: '/assets/cocktails/pisco_sour.jpg',
       }));
 
-      setCocktails(prev => {
-        const existingNames = new Set(prev.map(c => c.name.toLowerCase()));
-        const additions = newCocktails.filter(c => !existingNames.has(c.name.toLowerCase()));
-        return [...prev, ...additions];
-      });
+      setCocktails(prev=>mergeMenuImport(prev,newCocktails));
 
       setStatusMessage(`✓ ¡Éxito! Se importaron ${importedProducts.length} productos desde tu archivo Excel.`);
       setTimeout(() => setStatusMessage(null), 4500);
@@ -116,8 +115,9 @@ export const OlaClickExcelModal: React.FC<OlaClickExcelModalProps> = ({
   };
 
   const handleAddProduct = () => {
+    if(readOnly){setStatusMessage('Operación cerrada: solo consulta y descarga.');return;}
     if (!newName.trim()) return;
-    const priceNum = parseFloat(newPrice) || 25;
+    const priceNum = Math.max(0,Number(newPrice)||0);
     const item: OlaClickProductRow = {
       categoria: newCat,
       nombre: newName.trim(),
@@ -243,7 +243,7 @@ export const OlaClickExcelModal: React.FC<OlaClickExcelModalProps> = ({
               <Upload className="w-3.5 h-3.5 text-stone-600" />
               <span>Subir Archivo (.xlsx)</span>
               <input
-                type="file"
+                type="file" disabled={readOnly}
                 accept=".xlsx,.xls,.csv"
                 onChange={handleFileUpload}
                 className="hidden"

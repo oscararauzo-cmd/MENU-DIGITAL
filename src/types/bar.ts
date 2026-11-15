@@ -76,7 +76,13 @@ export type OrderPreparationStatus = 'preparing' | 'ready' | 'delivered';
 
 export type PaymentMethod = 'yape_plin' | 'tarjeta' | 'efectivo' | 'cortesia' | 'otro';
 
+export interface StockUsage {
+  ingredient: Ingredient;
+  packages: number;
+}
+
 export interface Order {
+  stockUsage?: StockUsage[];
   id: string;
   timestamp: number;
   orderType: OrderType;
@@ -108,6 +114,7 @@ export interface EventInventoryLine {
 }
 
 export interface BarEvent {
+  retainedStockUsage?: StockUsage[];
   deletedAt?: number;
   trashExpiresAt?: number;
   statusBeforeTrash?: 'active'|'closed';

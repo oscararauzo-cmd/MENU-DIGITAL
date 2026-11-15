@@ -1,10 +1,11 @@
+import { publicMenuHtml } from '../utils/publicMenu';
 import React, { useState, useMemo } from 'react';
 import { BusinessProfile, Cocktail } from '../types/bar';
 import {
   X,
   Sparkles,
   QrCode,
-  Share2,
+  Download,
   SlidersHorizontal,
   Flame,
   Check,
@@ -45,10 +46,11 @@ export const PublicMenuModal: React.FC<PublicMenuModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleCopyLink = () => {
-    navigator.clipboard?.writeText(window.location.href);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
+  const handleDownloadMenu = () => {
+    const html=publicMenuHtml(businessProfile,cocktails,window.location.href);
+    const url=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
+    const link=document.createElement('a');link.href=url;link.download='Carta_clientes.html';link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);setCopiedLink(true);setTimeout(()=>setCopiedLink(false),2500);
   };
 
   return (
@@ -60,17 +62,17 @@ export const PublicMenuModal: React.FC<PublicMenuModalProps> = ({
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="text-[11px] font-bold text-stone-300 font-mono">
-              Vista Previa: Carta Digital de Clientes (QR)
+              Vista previa de carta para clientes
             </span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handleCopyLink}
+              onClick={handleDownloadMenu}
               className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-[11px] font-bold flex items-center gap-1 transition active:scale-95 cursor-pointer"
             >
-              {copiedLink ? <Check className="w-3 h-3 text-emerald-400" /> : <Share2 className="w-3 h-3" />}
-              <span>{copiedLink ? '¡Enlace copiado!' : 'Compartir Carta'}</span>
+              {copiedLink ? <Check className="w-3 h-3 text-emerald-400" /> : <Download className="w-3 h-3" />}
+              <span>{copiedLink ? 'Carta descargada' : 'Descargar carta'}</span>
             </button>
 
             <button

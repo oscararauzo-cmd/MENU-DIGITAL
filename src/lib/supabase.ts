@@ -1,3 +1,4 @@
+import { encodeOrderNotes, decodeOrderNotes } from '../utils/inventoryLedger';
 import { encodeIngredientUnit, decodeIngredientUnit } from '../utils/packaging';
 import { encodeEventSnapshot, decodeEventSnapshot } from '../utils/operationContext';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -130,7 +131,7 @@ export async function fetchInitialStateFromSupabase(): Promise<LoadedSupabaseSta
           paymentMethod: o.payment_method || 'yape_plin',
           items: itemsByOrder.get(o.id) || [],
           totalAmount: Number(o.total_amount),
-          notes: o.notes || '',
+          ...decodeOrderNotes(o.notes || ''),
           status: o.status || 'preparing',
           printed: Boolean(o.printed),
         });
@@ -285,7 +286,7 @@ export async function pushOrderToSupabase(order: Order, eventId: string, eventCo
       order_type: order.orderType,
       payment_method: order.paymentMethod || 'yape_plin',
       total_amount: order.totalAmount,
-      notes: order.notes || '',
+      notes: encodeOrderNotes(order),
       status: order.status || 'preparing',
       printed: order.printed || false,
       created_at: new Date(order.timestamp).toISOString(),
@@ -319,13 +320,16 @@ export async function pushOrderToSupabase(order: Order, eventId: string, eventCo
 
 export async function updateOrderStatusInSupabase(
   orderId: string,
-  status: OrderPreparationStatus
+  status: OrderPreparationStatus, previousStatus?:OrderPreparationStatus
 ): Promise<{ success: boolean; error?: string }> {
   if (!supabase) return { success: false };
 
   try {
-    const { error } = await supabase.from('orders').update({ status }).eq('id', orderId);
-    if (error) throw error;
+    let query=supabase.from('orders').update({status}).eq('id',orderId);
+    if(previousStatus)query=query.eq('status',previousStatus);
+    const {data,error}=await query.select('id');
+    if(error)throw error;
+    if(!data?.length)return {success:false,error:'El pedido cambió en otro dispositivo o no se pudo guardar. Actualiza y reintenta.'};
     return { success: true };
   } catch (err: any) {
     console.error('Error actualizando estado en Supabase:', err);
@@ -419,4 +423,13 @@ export async function changeOperationTrashState(previous: BarEvent, next: BarEve
   const { data,error }=await query.select('id');
   if (error) throw new Error('No se pudo guardar el cambio en la papelera. Revisa la conexión y vuelve a intentar.');
   if (!data?.length) throw new Error('Este registro cambió en otro dispositivo. Espera a que se actualice y vuelve a intentar.');
+}
+
+export async function applyCatalogMutation(mutation:import('./catalogOutbox').CatalogMutation):Promise<{success:boolean;error?:string}>{
+ if(!supabase)return {success:false};
+ if(mutation.action==='upsert')return mutation.resource==='ingredients'?syncIngredientsToSupabase([mutation.record as Ingredient]):syncCocktailsToSupabase([mutation.record as Cocktail]);
+ const {error}=await supabase.from(mutation.resource).delete().eq('id',mutation.id);
+ if(error)return {success:false,error:error.message};
+ const check=await supabase.from(mutation.resource).select('id').eq('id',mutation.id);
+ return check.error||check.data?.length?{success:false,error:'No se pudo confirmar la eliminación.'}:{success:true};
 }

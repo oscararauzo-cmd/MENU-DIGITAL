@@ -1,3 +1,4 @@
+import { parseLocalNumber } from './importNumbers.ts';
 import * as XLSX from 'xlsx';
 import { Cocktail, BusinessProfile } from '../types/bar';
 
@@ -93,7 +94,7 @@ export function buildOlaClickProducts(cocktails: Cocktail[]): OlaClickProductRow
 /**
  * Genera y descarga el archivo .xlsx idéntico a las capturas de pantalla de OlaClick
  */
-export function exportOlaClickExcel(cocktails: Cocktail[], businessName: string = 'ALTURA'): void {
+export function exportOlaClickExcel(cocktails: Cocktail[], businessName: string = 'ALTURA', products:OlaClickProductRow[]=buildOlaClickProducts(cocktails), modifiers:OlaClickModifierRow[]=DEFAULT_OLACLICK_MODIFIERS): void {
   const wb = XLSX.utils.book_new();
 
   // =========================================================================
@@ -152,7 +153,7 @@ export function exportOlaClickExcel(cocktails: Cocktail[], businessName: string 
     'Categorías de modificadores',
   ];
 
-  const productRows = buildOlaClickProducts(cocktails).map(p => [
+  const productRows = products.map(p => [
     p.categoria,
     p.nombre,
     p.variante,
@@ -190,7 +191,7 @@ export function exportOlaClickExcel(cocktails: Cocktail[], businessName: string 
     'Costo de modificador',
   ];
 
-  const modifierRows = DEFAULT_OLACLICK_MODIFIERS.map(m => [
+  const modifierRows = modifiers.map(m => [
     m.categoriaModificador,
     m.condicion,
     m.seleccionar,
@@ -261,7 +262,7 @@ export async function parseOlaClickExcel(file: File): Promise<OlaClickProductRow
     const variante = varIdx >= 0 ? String(row[varIdx] || '').trim() : '';
     const descripcion = descIdx >= 0 ? String(row[descIdx] || '').trim() : '';
     const precioRaw = priceIdx >= 0 ? row[priceIdx] : 0;
-    const precio = typeof precioRaw === 'number' ? precioRaw : parseFloat(String(precioRaw).replace(/[^0-9.]/g, '')) || 0;
+    const precio = parseLocalNumber(precioRaw);
     const categoriasModificadores = modsIdx >= 0 ? String(row[modsIdx] || '').trim() : '';
 
     parsedProducts.push({

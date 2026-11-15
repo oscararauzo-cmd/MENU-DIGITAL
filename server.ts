@@ -10,19 +10,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = 3000;
+const port = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
 // Initialize Gemini client server-side
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || '',
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
+const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({apiKey:process.env.GEMINI_API_KEY}) : null;
 
 // Intelligent Bar Assistant & Speech Parser Endpoint
 app.post('/api/chat', async (req, res) => {
@@ -33,6 +26,7 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Faltan mensajes en la solicitud' });
     }
 
+    if(!ai)return res.status(503).json({reply:'El asistente no tiene conexión configurada. No se modificó ningún pedido ni insumo.',action:null});
     const latestUserMessage = messages[messages.length - 1].content || messages[messages.length - 1].text;
 
     const contextStr = eventContext
@@ -128,46 +122,7 @@ Reglas:
   } catch (error: any) {
     console.error('Error in /api/chat:', error);
 
-    // Smart bar heuristic fallback in case of transient model overload
-    const lower = (req.body?.messages?.slice(-1)[0]?.content || '').toLowerCase();
-    let fallbackAction = null;
-    let fallbackReply = 'He procesado tu mensaje en el sistema.';
-
-    if (lower.includes('rompi') || lower.includes('derrame') || lower.includes('merma')) {
-      const matchNum = lower.match(/\d+/);
-      const qty = matchNum ? parseInt(matchNum[0], 10) : 1;
-      const ingName = lower.includes('pisco') ? 'Pisco Quebranta' : lower.includes('gin') ? 'Gin Amazónico' : 'Insumo de barra';
-      fallbackAction = {
-        type: 'add_waste',
-        waste: { ingredientName: ingName, quantity: qty, reason: 'rotura', notes: 'Registrado con asistente de barra' }
-      };
-      fallbackReply = `Registrada la merma de ${qty} unidad(es) de ${ingName}. Descontado de bodega.`;
-    } else if (lower.includes('dj') || lower.includes('cortesia') || lower.includes('regal')) {
-      const matchNum = lower.match(/\d+/);
-      const qty = matchNum ? parseInt(matchNum[0], 10) : 1;
-      const drinkName = lower.includes('chilcano') ? 'Chilcano de Pisco' : 'Pisco Sour Clásico';
-      fallbackAction = {
-        type: 'add_order',
-        order: { orderType: 'dj', items: [{ cocktailName: drinkName, quantity: qty }], notes: 'Cortesía DJ / Invitado' }
-      };
-      fallbackReply = `Anotados ${qty}x ${drinkName} de cortesía para el DJ/invitado.`;
-    } else if (lower.includes('llegaron') || lower.includes('compr') || lower.includes('stock')) {
-      const matchNum = lower.match(/\d+/);
-      const qty = matchNum ? parseInt(matchNum[0], 10) : 6;
-      const ingName = lower.includes('gin') ? 'Gin Amazónico' : lower.includes('pisco') ? 'Pisco Quebranta' : 'Insumo';
-      fallbackAction = {
-        type: 'update_stock',
-        stock: { ingredientName: ingName, addedUnits: qty, packageCost: 45.0 }
-      };
-      fallbackReply = `Ingresadas +${qty} unidades de ${ingName} al inventario de bodega.`;
-    } else {
-      fallbackReply = 'Actualmente los servidores de IA están ocupados temporalmente, pero tus pedidos y comandas se están registrando y cuadrando normalmente en la barra.';
-    }
-
-    res.json({
-      reply: fallbackReply,
-      action: fallbackAction,
-    });
+    res.status(503).json({reply:'El asistente no está disponible en este momento. No se modificaron pedidos ni insumos.',action:null});
   }
 });
 

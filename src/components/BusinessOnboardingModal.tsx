@@ -23,14 +23,14 @@ interface BusinessOnboardingModalProps {
   onOpenPublicMenu: () => void;
 }
 
-export const BusinessOnboardingModal: React.FC<BusinessOnboardingModalProps> = ({
+const BusinessOnboardingForm: React.FC<BusinessOnboardingModalProps> = ({
   isOpen,
   onClose,
   businessProfile,
   onSaveProfile,
   onOpenPublicMenu,
 }) => {
-  if (!isOpen) return null;
+
 
   // Form State
   const [name, setName] = useState<string>(businessProfile.name || 'ALTURA');
@@ -218,3 +218,5 @@ export const BusinessOnboardingModal: React.FC<BusinessOnboardingModalProps> = (
     </div>
   );
 };
+
+export const BusinessOnboardingModal: React.FC<BusinessOnboardingModalProps> = props => props.isOpen ? <BusinessOnboardingForm {...props}/> : null;

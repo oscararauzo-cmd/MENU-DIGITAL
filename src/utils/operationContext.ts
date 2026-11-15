@@ -1,3 +1,4 @@
+import { usageForOrder, packagesUsed, wastePackages } from './inventoryLedger.ts';
 import { visibleOperations } from './operationTrash.ts';
 import { recipeConsumption, sealedPresentation } from './packaging.ts';
 import type { BarEvent, Ingredient, Cocktail } from '../types/bar';
@@ -18,7 +19,7 @@ export function encodeEventSnapshot(event: BarEvent) {
   return { ...event.initialIngredientsSnapshot, __altura_context: {
     version: 1, operationType: event.operationType, deletedAt:event.deletedAt, trashExpiresAt:event.trashExpiresAt, statusBeforeTrash:event.statusBeforeTrash, isConsignment: event.isConsignment,
     organizerName: event.organizerName, consignmentNotes: event.consignmentNotes,
-    inventory: event.inventory || [], recipeSnapshot: event.recipeSnapshot, menuCategories: event.menuCategories, inventorySettledAt: event.inventorySettledAt,
+    retainedStockUsage:event.retainedStockUsage, inventory: event.inventory || [], recipeSnapshot: event.recipeSnapshot, menuCategories: event.menuCategories, inventorySettledAt: event.inventorySettledAt,
   } };
 }
 export function decodeEventSnapshot(raw: unknown): Partial<BarEvent> & Pick<BarEvent, 'initialIngredientsSnapshot'> {
@@ -28,20 +29,13 @@ export function decodeEventSnapshot(raw: unknown): Partial<BarEvent> & Pick<BarE
     operationType: meta.operationType==='evento'?'evento':meta.operationType==='dia'?'dia':undefined,
     deletedAt:meta.deletedAt,trashExpiresAt:meta.trashExpiresAt,statusBeforeTrash:meta.statusBeforeTrash,
     isConsignment: Boolean(meta.isConsignment), organizerName: meta.organizerName,
-    consignmentNotes: meta.consignmentNotes, menuCategories: Array.isArray(meta.menuCategories) ? meta.menuCategories : undefined, recipeSnapshot: Array.isArray(meta.recipeSnapshot) ? meta.recipeSnapshot : undefined, inventory: Array.isArray(meta.inventory) ? meta.inventory : [], inventorySettledAt: meta.inventorySettledAt,
+    consignmentNotes: meta.consignmentNotes, menuCategories: Array.isArray(meta.menuCategories) ? meta.menuCategories : undefined, recipeSnapshot: Array.isArray(meta.recipeSnapshot) ? meta.recipeSnapshot : undefined, retainedStockUsage:Array.isArray(meta.retainedStockUsage)?meta.retainedStockUsage:[], inventory: Array.isArray(meta.inventory) ? meta.inventory : [], inventorySettledAt: meta.inventorySettledAt,
   } : {}) };
 }
 export function eventInventory(event: BarEvent, cocktails: Cocktail[]): Ingredient[] {
-  const consumed = new Map<string, number>();
-  for (const order of event.orders) for (const item of order.items) {
-    for (const recipe of (event.recipeSnapshot || cocktails).find(c => c.id === item.cocktailId)?.recipe || []) consumed.set(recipe.ingredientId, (consumed.get(recipe.ingredientId) || 0) + recipeConsumption(recipe, event.inventory?.find(line=>line.ingredient.id===recipe.ingredientId)?.ingredient) * item.quantity);
-  }
-  for (const waste of event.wastes) if (waste.ingredientId) {
-    const line = event.inventory?.find(l => l.ingredient.id === waste.ingredientId);
-    if (line) consumed.set(waste.ingredientId, (consumed.get(waste.ingredientId) || 0) + waste.quantity * (waste.unit === 'ml' ? 1 : line.ingredient.volumePerUnitMl));
-  }
-  return (event.inventory || []).map(line => ({ ...line.ingredient, initialStockUnits: line.receivedUnits,
-    currentStockUnits: line.receivedUnits - (consumed.get(line.ingredient.id) || 0) / (line.ingredient.volumePerUnitMl || 1) }));
+ const catalog=(event.inventory||[]).map(line=>line.ingredient);
+ const usage=[...(event.retainedStockUsage||[]),...event.orders.flatMap(order=>usageForOrder(order,event.recipeSnapshot||cocktails,catalog))];
+ return (event.inventory||[]).map(line=>({...line.ingredient,initialStockUnits:line.receivedUnits,currentStockUnits:line.receivedUnits-packagesUsed(usage,line.ingredient)-event.wastes.filter(waste=>waste.ingredientId===line.ingredient.id).reduce((sum,waste)=>sum+wastePackages(waste,line.ingredient),0)}));
 }
 export function consignmentSettlement(event: BarEvent, cocktails: Cocktail[]) {
   const stock = eventInventory(event, cocktails);
@@ -51,4 +45,9 @@ export function consignmentSettlement(event: BarEvent, cocktails: Cocktail[]) {
     const opened = Math.max(line.openedUnits || 0, minimumOpened);
     return { ...line, usedUnits: used, openedUnits: opened, sealedReturnedUnits: Math.max(0, line.receivedUnits - opened), retainedUnits: Math.max(0, opened - used), cost: opened * line.ingredient.packageCost, valid: opened <= line.receivedUnits };
   });
+}
+
+export function operationCost(event:BarEvent,cocktails:Cocktail[]):number{
+ if(event.isConsignment&&event.inventory?.length)return consignmentSettlement(event,cocktails).reduce((sum,line)=>sum+line.cost,0);
+ return event.orders.reduce((sum,order)=>sum+order.items.reduce((n,item)=>n+item.unitCost*item.quantity,0),0)+(event.retainedStockUsage||[]).reduce((sum,usage)=>sum+usage.packages*usage.ingredient.packageCost,0)+event.wastes.reduce((sum,waste)=>sum+waste.estimatedCost,0);
 }

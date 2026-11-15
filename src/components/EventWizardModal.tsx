@@ -1,3 +1,4 @@
+import { limaDate } from '../utils/operationContext';
 import React, { useState } from 'react';
 import { BarEvent, Ingredient, Cocktail } from '../types/bar';
 import {
@@ -19,17 +20,17 @@ interface EventWizardModalProps {
   onSaveEvent: (event: BarEvent) => void;
 }
 
-export const EventWizardModal: React.FC<EventWizardModalProps> = ({
+const EventWizardForm: React.FC<EventWizardModalProps> = ({
   isOpen,
   onClose,
   ingredients,
   existingEvent,
   onSaveEvent,
 }) => {
-  if (!isOpen) return null;
+
 
   const [name, setName] = useState(existingEvent?.name || 'Sábado Sunset & DJ Sessions');
-  const [date, setDate] = useState(existingEvent?.date || new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(existingEvent?.date || limaDate());
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -38,7 +39,7 @@ export const EventWizardModal: React.FC<EventWizardModalProps> = ({
     // Snapshot current ingredients
     const snapshot: Record<string, number> = {};
     for (const ing of ingredients) {
-      snapshot[ing.id] = ing.initialStockUnits || 10;
+      snapshot[ing.id] = ing.currentStockUnits;
     }
 
     const savedEvent: BarEvent = {
@@ -142,3 +143,5 @@ export const EventWizardModal: React.FC<EventWizardModalProps> = ({
     </div>
   );
 };
+
+export const EventWizardModal: React.FC<EventWizardModalProps> = props => props.isOpen ? <EventWizardForm {...props}/> : null;

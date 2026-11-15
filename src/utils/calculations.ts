@@ -1,3 +1,4 @@
+import { usageForOrder, packagesUsed, wastePackages } from './inventoryLedger.ts';
 import { recipeConsumption } from './packaging.ts';
 import type { Cocktail, Ingredient, BarEvent, WasteRecord } from '../types/bar';
 
@@ -142,7 +143,7 @@ export function calculateEventMetrics(
       let stats = drinkStatsMap.get(item.cocktailId);
       const cocktail = cocktailMap.get(item.cocktailId);
 
-      const unitCost = cocktail ? calculateCocktailUnitCost(cocktail, ingredients) : (item.unitCost || 0);
+      const unitCost = Number.isFinite(item.unitCost) ? item.unitCost : cocktail ? calculateCocktailUnitCost(cocktail, ingredients) : 0;
       const unitPrice = item.unitPrice;
 
       if (!stats) {
@@ -184,24 +185,23 @@ export function calculateEventMetrics(
         totalCostCourtesy += cost;
       }
 
-      // Track ingredients consumed
-      if (cocktail) {
-        for (const recipeItem of cocktail.recipe) {
-          const prev = ingConsumedMap.get(recipeItem.ingredientId) || 0;
-          ingConsumedMap.set(recipeItem.ingredientId, prev + (recipeConsumption(recipeItem, ingMap.get(recipeItem.ingredientId)) * item.quantity));
-        }
-      }
+    }
+    for(const usage of usageForOrder(order,cocktails,ingredients)){
+      const ingredient=ingMap.get(usage.ingredient.id);if(!ingredient)continue;
+      ingConsumedMap.set(ingredient.id,(ingConsumedMap.get(ingredient.id)||0)+packagesUsed([usage],ingredient)*ingredient.volumePerUnitMl);
     }
   }
+  for(const usage of event.retainedStockUsage||[]){const ingredient=ingMap.get(usage.ingredient.id);if(ingredient)ingConsumedMap.set(ingredient.id,(ingConsumedMap.get(ingredient.id)||0)+packagesUsed([usage],ingredient)*ingredient.volumePerUnitMl);}
 
   // 3. Wastes
-  let totalWasteCost = 0;
+  let totalWasteCost = (event.retainedStockUsage||[]).reduce((sum,usage)=>sum+usage.packages*usage.ingredient.packageCost,0);
   const ingWasteMap = new Map<string, number>();
   for (const w of event.wastes) {
     totalWasteCost += w.estimatedCost;
     if (w.ingredientId) {
       const prev = ingWasteMap.get(w.ingredientId) || 0;
-      ingWasteMap.set(w.ingredientId, prev + w.quantity);
+      const ingredient=ingMap.get(w.ingredientId);
+      ingWasteMap.set(w.ingredientId, prev + (ingredient?wastePackages(w,ingredient)*ingredient.volumePerUnitMl:w.quantity));
     }
   }
 

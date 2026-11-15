@@ -1,3 +1,6 @@
+import { useCatalogSync } from './hooks/useCatalogSync';
+import { mergeCatalogQueue,restoreCatalogQueue } from './lib/catalogOutbox';
+import { captureStockUsage, usageForOrder, applyStockUsage, validateStock, wastePackages, deleteOrderFromEvent } from './utils/inventoryLedger';
 import { visibleOperations, isInTrash, trashOperation, restoreOperation } from './utils/operationTrash';
 import { OperationEditModal, OperationTrashScreen } from './components/OperationManagement';
 import { recipeConsumption, convertPresentationQuantity } from './utils/packaging';
@@ -137,10 +140,7 @@ export default function App() {
       const saved = localStorage.getItem('altura_cocktails_v3');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const existingIds = new Set(parsed.map((c: Cocktail) => c.id));
-        const missing = INITIAL_COCKTAILS.filter(c => !existingIds.has(c.id));
-        if (missing.length > 0) return [...parsed, ...missing];
-        return parsed;
+        return mergeCatalogQueue('cocktails',parsed,restoreCatalogQueue(localStorage.getItem('altura_catalog_outbox_v1')));
       }
     } catch (e) {
       console.error(e);
@@ -160,6 +160,10 @@ export default function App() {
     }
     return INITIAL_INGREDIENTS;
   });
+
+  const catalogSync=useCatalogSync(ingredients,cocktails,catalogHydrated);
+  const catalogReadyRef=useRef(catalogHydrated);
+  catalogReadyRef.current=catalogHydrated;
 
   // Modals & Drawers State
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
@@ -185,7 +189,7 @@ export default function App() {
   const [autoPrintEnabled, setAutoPrintEnabled] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('altura_autoprint_v1');
-      return saved !== null ? saved === 'true' : true;
+      return saved !== null ? saved === 'true' : false;
     } catch (e) {
       return true;
     }
@@ -225,11 +229,10 @@ export default function App() {
         }
 
         if (remote.isNewDatabase) {
-          syncIngredientsToSupabase(ingredients).catch(console.error);
-          syncCocktailsToSupabase(cocktails).catch(console.error);
+          catalogSync.seed();
         } else {
-          setIngredients(remote.ingredients || []);
-          setCocktails(remote.cocktails || []);
+          const merged=catalogSync.adoptRemote(remote.ingredients||[],remote.cocktails||[]);
+          setIngredients(merged.ingredients);setCocktails(merged.cocktails);
         }
         setCatalogHydrated(true);
 
@@ -267,11 +270,14 @@ export default function App() {
       fetching = true;
       try {
         await flushEventSaves();
+        await catalogSync.flush();
+        const catalogVersion=catalogSync.version.current;
         const remote = await fetchInitialStateFromSupabase();
         if (cancelled) return;
         if (!remote?.events) { setConnection('offline'); return; }
         setConnection(navigator.onLine ? 'online' : 'offline');
         setLastSync(Date.now());
+        if(catalogReadyRef.current&&catalogSync.version.current===catalogVersion){const merged=catalogSync.adoptRemote(remote.ingredients||[],remote.cocktails||[]);setIngredients(previous=>JSON.stringify(previous)===JSON.stringify(merged.ingredients)?previous:merged.ingredients);setCocktails(previous=>JSON.stringify(previous)===JSON.stringify(merged.cocktails)?previous:merged.cocktails);}
         setEvents(previous => previous.map(event => {
           const incoming = remote.events?.find(e => e.id === event.id);
           if (!incoming) return event;
@@ -332,9 +338,7 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    if (catalogHydrated && isSupabaseConfigured()) {
-      syncCocktailsToSupabase(cocktails).catch(console.error);
-    }
+
   }, [cocktails, catalogHydrated]);
 
   useEffect(() => {
@@ -343,9 +347,7 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    if (catalogHydrated && isSupabaseConfigured()) {
-      syncIngredientsToSupabase(ingredients).catch(console.error);
-    }
+
   }, [ingredients, catalogHydrated]);
 
   // Find currently active event
@@ -361,12 +363,14 @@ export default function App() {
   const activeEventRef = useRef(activeEvent);
   activeEventRef.current = activeEvent;
   const updateActiveEventFields = (patch: Partial<BarEvent>) => {
+    if(activeEventRef.current.status!=='active')throw new Error('La operación está cerrada. Su carta e inventario se conservan como historial.');
     const next = {...activeEventRef.current,...patch};
     activeEventRef.current = next;
     setEvents(previous=>previous.map(event=>event.id===next.id?{...event,...patch}:event));
     queueEventSave(next);
   };
   const setActiveIngredients: React.Dispatch<React.SetStateAction<Ingredient[]>> = update => {
+    if(activeEventRef.current.status!=='active')throw new Error('La operación está cerrada.');
     if (!isSpecialEvent) { setIngredients(update); return; }
     const event = activeEventRef.current;
     const current = eventInventory(event, cocktails);
@@ -374,6 +378,7 @@ export default function App() {
     updateActiveEventFields({inventory:updateEventInventory(event,current,next,ingredients)});
   };
   const setActiveCocktails: React.Dispatch<React.SetStateAction<Cocktail[]>> = update => {
+    if(activeEventRef.current.status!=='active')throw new Error('La operación está cerrada.');
     if (!isSpecialEvent) { setCocktails(update); return; }
     const current = activeEventRef.current.recipeSnapshot || [];
     updateActiveEventFields({recipeSnapshot:typeof update === 'function' ? update(current) : update});
@@ -424,14 +429,8 @@ export default function App() {
   // Add order to active event & auto-deduct consumed stock from Bodega
   const handleAddOrder = (newOrder: Order) => {
     if (activeEvent.status !== 'active') throw new Error('Este registro está cerrado. Abre una jornada o evento desde Inicio.');
-    if (isSpecialEvent) {
-      const required = new Map<string,number>();
-      for (const item of newOrder.items) for (const recipe of activeCocktails.find(c=>c.id===item.cocktailId)?.recipe || []) required.set(recipe.ingredientId,(required.get(recipe.ingredientId)||0)+recipeConsumption(recipe,activeIngredients.find(i=>i.id===recipe.ingredientId))*item.quantity);
-      for (const [id, amount] of required) {
-        const ingredient=activeIngredients.find(i=>i.id===id);
-        if (!ingredient || ingredient.currentStockUnits * ingredient.volumePerUnitMl + 1e-8 < amount) throw new Error(`No hay suficiente ${ingredient?.name || 'stock asignado'} en este evento. Revisa sus insumos.`);
-      }
-    }
+    newOrder={...newOrder,stockUsage:captureStockUsage(newOrder,activeCocktails,activeIngredients)};
+    validateStock(newOrder.stockUsage!,activeIngredients);
     if (sessionOrderIds.current.has(newOrder.id)) return;
     if (isSupabaseConfigured()) outbox.enqueue(newOrder, activeEvent.id, {...activeEvent,orders:[],wastes:[]});
     sessionOrderIds.current.add(newOrder.id);
@@ -447,35 +446,12 @@ export default function App() {
       })
     );
 
-    // Compute total ingredient usage (in ml or units) across sold items
-    const consumedByIng = new Map<string, number>();
-    for (const item of newOrder.items) {
-      const cocktail = activeCocktails.find(c => c.id === item.cocktailId);
-      if (!cocktail) continue;
-      for (const r of cocktail.recipe) {
-        const prevAmt = consumedByIng.get(r.ingredientId) || 0;
-        consumedByIng.set(r.ingredientId, prevAmt + recipeConsumption(r,activeIngredients.find(i=>i.id===r.ingredientId)) * item.quantity);
-      }
-    }
-
-    if (!isSpecialEvent && consumedByIng.size > 0) {
-      setIngredients(prev =>
-        prev.map(ing => {
-          const usedAmount = consumedByIng.get(ing.id);
-          if (!usedAmount || !ing.volumePerUnitMl || ing.volumePerUnitMl <= 0) return ing;
-          const usedUnits = usedAmount / ing.volumePerUnitMl;
-          return {
-            ...ing,
-            currentStockUnits: Number(Math.max(0, ing.currentStockUnits - usedUnits).toFixed(6)),
-          };
-        })
-      );
-    }
-
+    if(!isSpecialEvent)setIngredients(previous=>applyStockUsage(previous,newOrder.stockUsage!,-1));
 
   };
 
   const handleDeleteOrder = async (orderId: string) => {
+    if(activeEvent.status!=='active')throw new Error('La operación está cerrada. No se pueden eliminar sus pedidos.');
     if (pendingOrders.current.has(orderId) || outbox.queueRef.current[orderId]) throw new Error('El pedido se está sincronizando. Espera un momento y vuelve a intentar.');
     const targetEventId = activeEvent.id;
     const order = activeEvent.orders.find(o => o.id === orderId);
@@ -487,22 +463,21 @@ export default function App() {
         if (!result.success) throw new Error(result.error || 'No se pudo eliminar el pedido.');
       }
       deletedOrders.current.add(orderId);
-      setEvents(prev => prev.map(ev => ev.id === targetEventId ? { ...ev, orders: ev.orders.filter(o => o.id !== orderId) } : ev));
-      // Only an unprepared order returns its recipe consumption to inventory.
-      if (!isSpecialEvent && (!order.status || order.status === 'preparing')) {
-        const returned = new Map<string, number>();
-        for (const item of order.items) {
-          for (const recipe of cocktails.find(c => c.id === item.cocktailId)?.recipe || []) {
-            returned.set(recipe.ingredientId, (returned.get(recipe.ingredientId) || 0) + recipeConsumption(recipe,activeIngredients.find(i=>i.id===recipe.ingredientId)) * item.quantity);
-          }
-        }
-        setIngredients(prev => prev.map(ing => ing.volumePerUnitMl > 0 && returned.has(ing.id) ? { ...ing, currentStockUnits: Number((ing.currentStockUnits + returned.get(ing.id)! / ing.volumePerUnitMl).toFixed(6)) } : ing));
-      }
+      const nextEvent=deleteOrderFromEvent(activeEvent,order,activeCocktails,activeIngredients);
+      setEvents(previous=>previous.map(event=>event.id===targetEventId?{...event,orders:event.orders.filter(existing=>existing.id!==orderId),retainedStockUsage:nextEvent.retainedStockUsage}:event));
+      if(isSpecialEvent&&order.status&&order.status!=='preparing')queueEventSave(nextEvent);
+      if(!isSpecialEvent&&(!order.status||order.status==='preparing'))setIngredients(previous=>applyStockUsage(previous,usageForOrder(order,activeCocktails,activeIngredients),1));
+
     } finally { pendingOrders.current.delete(orderId); }
   };
 
   // Add waste & auto-deduct from Bodega stock
   const handleAddWaste = (newWaste: WasteRecord) => {
+    if(activeEvent.status!=='active')throw new Error('La operación está cerrada.');
+    if(!Number.isFinite(newWaste.quantity)||newWaste.quantity<=0)throw new Error('La merma debe ser mayor que cero.');
+    const affected=activeIngredients.find(ingredient=>ingredient.id===newWaste.ingredientId);
+    if(newWaste.ingredientId&&!affected)throw new Error('El insumo no pertenece a esta operación.');
+    if(affected&&wastePackages(newWaste,affected)>affected.currentStockUnits+1e-7)throw new Error('La merma supera las existencias disponibles.');
     setEvents(prev =>
       prev.map(ev => {
         if (ev.id === activeEvent.id) {
@@ -519,10 +494,10 @@ export default function App() {
       setIngredients(prev =>
         prev.map(ing => {
           if (ing.id !== newWaste.ingredientId || !ing.volumePerUnitMl || ing.volumePerUnitMl <= 0) return ing;
-          const lostUnits = newWaste.quantity / ing.volumePerUnitMl;
+          const lostUnits = wastePackages(newWaste,ing);
           return {
             ...ing,
-            currentStockUnits: Number(Math.max(0, ing.currentStockUnits - lostUnits).toFixed(2)),
+            currentStockUnits: Number(Math.max(0, ing.currentStockUnits - lostUnits).toFixed(8)),
           };
         })
       );
@@ -537,6 +512,7 @@ export default function App() {
   const handleCloseEvent = async (eventId: string) => {
     const target = events.find(ev => ev.id === eventId);
     if (!target || target.status !== 'active' || closingEvents.current.has(eventId)) return;
+    if (target.orders.some(order=>(order.status||'preparing')!=='delivered')) {setOrderSyncError('Hay pedidos sin entregar. Revisa Preparación antes de cerrar.');return;}
     if (Object.values(outbox.queueRef.current).some(entry=>entry.eventId===eventId)) { setOrderSyncError('Hay pedidos pendientes de envío. Espera a recuperar la conexión antes de cerrar.'); return; }
     const lines = consignmentSettlement(target,cocktails);
     if (target.isConsignment && !lines.every(line=>line.valid)) { setOrderSyncError('El consumo supera los insumos asignados. Revisa el cierre.'); return; }
@@ -599,23 +575,22 @@ export default function App() {
   };
 
   // Update preparation status of an order
-  const handleUpdateOrderStatus = (orderId: string, status: OrderPreparationStatus) => {
-    setEvents(prev =>
-      prev.map(ev => {
-        if (ev.id === activeEvent.id) {
-          return {
-            ...ev,
-            orders: ev.orders.map(o => (o.id === orderId ? { ...o, status } : o)),
-          };
-        }
-        return ev;
-      })
-    );
-
-    if (isSupabaseConfigured()) {
-      pendingOrders.current.add(orderId);
-      updateOrderStatusInSupabase(orderId, status).then(result => { setOrderSyncError(result.success ? '' : 'El cambio de estado no llegó a la nube. Revisa la conexión.'); }).catch(() => setOrderSyncError('No se pudo actualizar el estado en la nube.')).finally(() => pendingOrders.current.delete(orderId));
-    }
+  const handleUpdateOrderStatus = async(orderId:string,status:OrderPreparationStatus) => {
+    const eventId=activeEvent.id;
+    if(activeEvent.status!=='active')throw new Error('La operación está cerrada.');
+    if(pendingOrders.current.has(orderId))throw new Error('El pedido se está guardando. Espera un momento.');
+    const order=activeEvent.orders.find(order=>order.id===orderId);
+    if(!order)throw new Error('No se encontró el pedido.');
+    const current=order.status||'preparing';
+    if(!((current==='preparing'&&status==='ready')||(current==='ready'&&status==='delivered')))throw new Error('El estado cambió. Actualiza la preparación.');
+    pendingOrders.current.add(orderId);
+    try{
+      if(isSupabaseConfigured()){
+        const result=await updateOrderStatusInSupabase(orderId,status,current);
+        if(!result.success)throw new Error(result.error||'No se pudo guardar el estado. Reintenta.');
+      }
+      setEvents(previous=>previous.map(event=>event.id===eventId?{...event,orders:event.orders.map(order=>order.id===orderId?{...order,status}:order)}:event));
+    }finally{pendingOrders.current.delete(orderId);}
   };
 
   const handlePrintOrder = (order: Order) => {
@@ -653,6 +628,7 @@ export default function App() {
         onOpenPrinterModal={() => setIsPrinterModalOpen(true)}
         onOpenAssistant={() => setIsAssistantOpen(true)}
         onOpenGuide={() => setIsGuideOpen(true)}
+        onOpenManagement={()=>setIsManagementOpen(true)}
         onOpenMenuExcel={() => setIsMenuExcelOpen(true)}
         onOpenOnboarding={() => setIsBusinessOnboardingOpen(true)}
         onLockApp={() => setIsLocked(true)}
@@ -668,6 +644,8 @@ export default function App() {
         : currentView === 'carta_compras' ? (
           <CartaComprasScreen
             key={activeEvent.id}
+            readOnly={activeEvent.status!=='active'}
+            frozenPresentationIds={isSpecialEvent?(activeEvent.inventory||[]).filter(line=>line.openedUnits>0||(activeIngredients.find(i=>i.id===line.ingredient.id)?.currentStockUnits??line.receivedUnits)<line.receivedUnits-1e-8).map(line=>line.ingredient.id):[]}
             inventoryScope={isSpecialEvent ? 'evento' : 'bar'}
             ingredientCatalog={ingredients}
             barCocktails={cocktails}
@@ -743,6 +721,8 @@ export default function App() {
 
       {/* Plantilla Excel de Menú (.xlsx) */}
       <OlaClickExcelModal
+        readOnly={activeEvent.status!=='active'}
+        key={`${activeEvent.id}-${isMenuExcelOpen}`}
         isOpen={isMenuExcelOpen}
         onClose={() => setIsMenuExcelOpen(false)}
         cocktails={activeCocktails}
@@ -752,6 +732,7 @@ export default function App() {
 
       {/* Asistente IA (Gemini) */}
       <AIAssistantDrawer
+        key={activeEvent.id}
         isOpen={isAssistantOpen}
         onClose={() => setIsAssistantOpen(false)}
         activeEvent={activeEvent}
@@ -764,6 +745,7 @@ export default function App() {
 
       {/* Gestión Avanzada (Cierre, Mermas & Tutorial) */}
       <ManagementDrawer
+        key={activeEvent.id}
         isOpen={isManagementOpen}
         onClose={() => setIsManagementOpen(false)}
         activeEvent={activeEvent}
@@ -786,6 +768,7 @@ export default function App() {
 
       {/* Editor de Receta Individual */}
       <EditCocktailModal
+        key={`${cocktailToEdit?.id}-${isEditCocktailOpen}`}
         isOpen={isEditCocktailOpen}
         onClose={() => {
           setIsEditCocktailOpen(false);
@@ -798,6 +781,7 @@ export default function App() {
 
       {/* Configuración de Evento / Stock Inicial */}
       <EventWizardModal
+        key={`${wizardTargetEvent?.id}-${isEventWizardOpen}`}
         isOpen={isEventWizardOpen}
         onClose={() => {
           setIsEventWizardOpen(false);
@@ -812,6 +796,7 @@ export default function App() {
 
       {/* Registro B2B Experiencia Cero */}
       <BusinessOnboardingModal
+        key={String(isBusinessOnboardingOpen)}
         isOpen={isBusinessOnboardingOpen}
         onClose={() => setIsBusinessOnboardingOpen(false)}
         businessProfile={businessProfile}
@@ -829,7 +814,7 @@ export default function App() {
       <PublicMenuModal
         isOpen={isPublicMenuOpen}
         onClose={() => setIsPublicMenuOpen(false)}
-        businessProfile={businessProfile}
+        businessProfile={activeBusinessProfile}
         cocktails={activeCocktails}
         onOpenEditProfile={() => setIsBusinessOnboardingOpen(true)}
       />
@@ -841,8 +826,8 @@ export default function App() {
         onGoToBarra={() => setCurrentView('pdv')}
       />
 
-      {orderSyncError && <div role="alert" className="fixed bottom-4 inset-x-4 z-[100] rounded-xl bg-rose-800 text-white p-4 flex justify-between gap-3 text-sm">
-        <span>{orderSyncError}</span><button onClick={() => setOrderSyncError('')} className="font-bold px-3">Cerrar</button>
+      {(orderSyncError||catalogSync.error) && <div role="alert" className="fixed bottom-4 inset-x-4 z-[100] rounded-xl bg-rose-800 text-white p-4 flex justify-between gap-3 text-sm">
+        <span>{orderSyncError||catalogSync.error}</span><button onClick={() => {setOrderSyncError('');catalogSync.dismissError();}} className="font-bold px-3">Cerrar</button>
       </div>}
 
       {/* Ticket Térmico de Comanda (Impresión y Envío a Preparación) */}

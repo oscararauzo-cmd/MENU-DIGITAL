@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Cocktail, Order, OrderType, Ingredient, PaymentMethod, BusinessProfile } from '../types/bar';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { calculateCocktailUnitCost } from '../utils/calculations';
@@ -41,6 +41,10 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
   const [orderNote, setOrderNote] = useState<string>('');
   const [lastNotification, setLastNotification] = useState<string | null>(null);
 
+  useEffect(()=>{
+    const unavailable=Object.keys(cart).filter(id=>!cocktails.some(product=>product.id===id&&product.enabledForEvent));
+    if(unavailable.length){setCart(previous=>Object.fromEntries(Object.entries(previous).filter(([id])=>!unavailable.includes(id))));setLastNotification('Se retiraron de la comanda productos que ya no están disponibles.');}
+  },[cocktails,cart]);
   // Desktop/Tablet right panel collapse state
   const [isComandaCollapsed, setIsComandaCollapsed] = useState<boolean>(false);
   // Compact screen (< 768px) or collapsed pop-up sheet state
@@ -110,17 +114,8 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
   };
 
   const cartEntries = useMemo(() => {
-    return Object.entries(cart).map(([cocktailId, qty]) => {
-      const cocktail = cocktails.find(c => c.id === cocktailId) || {
-        id: cocktailId,
-        name: 'Ítem',
-        category: 'clasico' as const,
-        price: 25,
-        recipe: [],
-        description: '',
-        imageUrl: '/assets/cocktails/pisco_sour.jpg',
-        enabledForEvent: true,
-      };
+    return Object.entries(cart).filter(([id])=>cocktails.some(product=>product.id===id&&product.enabledForEvent)).map(([cocktailId, qty]) => {
+      const cocktail = cocktails.find(c=>c.id===cocktailId)!;
       return {
         cocktail,
         quantity: qty,

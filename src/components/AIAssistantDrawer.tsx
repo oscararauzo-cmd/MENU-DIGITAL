@@ -1,3 +1,4 @@
+import { assistantActionPlan } from '../utils/assistantActions';
 import React, { useState, useRef, useEffect } from 'react';
 import { BarEvent, Cocktail, Ingredient, Order, WasteRecord } from '../types/bar';
 import { calculateEventMetrics } from '../utils/calculations';
@@ -29,6 +30,7 @@ interface ChatMessage {
   role: 'user' | 'model';
   content: string;
   actionSummary?: string;
+  pendingAction?: any;
   timestamp: number;
 }
 
@@ -60,6 +62,8 @@ Puedes hablarme o escribir cualquier dato desestructurado:
   const [inputPrompt, setInputPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const recognitionRef=useRef<any>(null);
+  const applied=useRef(new Set<string>());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const metrics = calculateEventMetrics(activeEvent, cocktails, ingredients);
@@ -93,12 +97,14 @@ Puedes hablarme o escribir cualquier dato desestructurado:
     }
 
     if (isListening) {
+      recognitionRef.current?.stop();
       setIsListening(false);
       return;
     }
 
     try {
       const recognition = new SpeechRecognition();
+      recognitionRef.current=recognition;
       recognition.lang = 'es-PE';
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
@@ -131,109 +137,15 @@ Puedes hablarme o escribir cualquier dato desestructurado:
     }
   };
 
+  useEffect(()=>{if(!isOpen)recognitionRef.current?.abort();return()=>recognitionRef.current?.abort();},[isOpen]);
   // Dispatch actions to state
-  const executeServerAction = (action: any): string | undefined => {
-    if (!action || !action.type || action.type === 'none') return undefined;
-
-    // 1. Add Order (DJ, Cortesia, Venta)
-    if (action.type === 'add_order' && action.order) {
-      const ord = action.order;
-      const items = (ord.items || []).map((it: any) => {
-        const found = cocktails.find(
-          c => c.name.toLowerCase().includes((it.cocktailName || '').toLowerCase())
-        ) || cocktails[0];
-        return {
-          cocktailId: found.id,
-          cocktailName: found.name,
-          quantity: it.quantity || 1,
-          unitPrice: found.price,
-          unitCost: (found.price * 0.2),
-        };
-      });
-
-      const isPaid = ord.orderType === 'venta';
-      const totalAmount = isPaid ? items.reduce((s: number, i: any) => s + i.quantity * i.unitPrice, 0) : 0;
-
-      const newOrder: Order = {
-        id: `AI-ORD-${Date.now().toString().slice(-4)}`,
-        timestamp: Date.now(),
-        orderType: ord.orderType || 'dj',
-        items,
-        totalAmount,
-        notes: ord.notes || 'Registrado por Chaski AI',
-      };
-
-      onAddOrder(newOrder);
-      return `✓ Comanda registrada (${ord.orderType.toUpperCase()}): ${items.map((i: any) => `${i.quantity}x ${i.cocktailName}`).join(', ')}`;
-    }
-
-    // 2. Add Waste
-    if (action.type === 'add_waste' && action.waste) {
-      const wst = action.waste;
-      const foundIng = ingredients.find(
-        i => i.name.toLowerCase().includes((wst.ingredientName || '').toLowerCase())
-      ) || ingredients[0];
-
-      const qty = wst.quantity || 1;
-      const cost = Number(((foundIng.packageCost / (foundIng.volumePerUnitMl || 1)) * (foundIng.volumePerUnitMl ? qty * foundIng.volumePerUnitMl : qty)).toFixed(2));
-
-      const newWaste: WasteRecord = {
-        id: `AI-WST-${Date.now()}`,
-        timestamp: Date.now(),
-        ingredientId: foundIng.id,
-        name: `Merma de ${foundIng.name}`,
-        quantity: qty,
-        unit: 'botellas/un',
-        reason: wst.reason || 'rotura',
-        estimatedCost: cost > 0 ? cost : foundIng.packageCost,
-        notes: wst.notes || 'Dictado por voz/texto a Chaski AI',
-      };
-
-      onAddWaste(newWaste);
-      return `✓ Merma anotada: ${qty}x ${foundIng.name} (Pérdida: S/. ${newWaste.estimatedCost})`;
-    }
-
-    // 3. Update Stock
-    if (action.type === 'update_stock' && action.stock) {
-      const stk = action.stock;
-      const foundIng = ingredients.find(
-        i => i.name.toLowerCase().includes((stk.ingredientName || '').toLowerCase())
-      );
-
-      const units = stk.addedUnits || 1;
-
-      if (foundIng) {
-        setIngredients(prev =>
-          prev.map(i =>
-            i.id === foundIng.id
-              ? {
-                  ...i,
-                  initialStockUnits: i.initialStockUnits + units,
-                  currentStockUnits: i.currentStockUnits + units,
-                  packageCost: stk.packageCost || i.packageCost,
-                }
-              : i
-          )
-        );
-        return `✓ Stock ampliado: +${units} unidades de ${foundIng.name}`;
-      } else {
-        const newIng: Ingredient = {
-          id: `ing-${Date.now()}`,
-          name: stk.ingredientName,
-          category: 'licor',
-          unit: 'botella_750ml',
-          packageCost: stk.packageCost || 45,
-          volumePerUnitMl: 750,
-          initialStockUnits: units,
-          currentStockUnits: units,
-          minAlertUnits: 2,
-        };
-        setIngredients(prev => [...prev, newIng]);
-        return `✓ Nuevo insumo creado e ingresado: ${stk.ingredientName} (${units} unidades)`;
-      }
-    }
-
-    return undefined;
+  const executeServerAction = (action:any):string => {
+    if(activeEvent.status!=='active')throw new Error('Abre una jornada o evento activo antes de aplicar cambios.');
+    const plan=assistantActionPlan(action,cocktails,ingredients);
+    if(plan.type==='order')onAddOrder(plan.value);
+    else if(plan.type==='waste')onAddWaste(plan.value);
+    else setIngredients(previous=>previous.map(ingredient=>ingredient.id===plan.value.ingredientId?{...ingredient,currentStockUnits:ingredient.currentStockUnits+plan.value.units,packageCost:plan.value.price}:ingredient));
+    return plan.summary;
   };
 
   // Send message
@@ -284,28 +196,29 @@ Puedes hablarme o escribir cualquier dato desestructurado:
         }),
       });
 
-      if (!response.ok) throw new Error('Error al conectar con Gemini');
+      if (!response.ok) {const details=await response.json().catch(()=>({}));throw new Error(details.reply||'No se pudo conectar con el asistente.');}
 
       const data = await response.json();
-      const actionSummary = executeServerAction(data.action);
+      const proposal=data.action&&data.action.type!=='none'?assistantActionPlan(data.action,cocktails,ingredients):null;
 
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
         role: 'model',
-        content: data.reply || 'Datos procesados correctamente.',
-        actionSummary,
+        content: proposal?`Propuesta pendiente: ${proposal.summary}. Revisa y aplica para guardarla.`:data.reply||'No se recibieron datos.',
+        pendingAction:proposal?data.action:undefined,
         timestamp: Date.now(),
       };
 
       setMessages(prev => [...prev, botMsg]);
     } catch (err: any) {
       console.error(err);
+      setInputPrompt(textToSend);
       setMessages(prev => [
         ...prev,
         {
           id: `err-${Date.now()}`,
           role: 'model',
-          content: 'No pude procesar la instrucción en este momento. Inténtalo de nuevo.',
+          content: err.message||'No pude procesar la instrucción. No se modificaron datos.',
           timestamp: Date.now(),
         },
       ]);
@@ -380,6 +293,7 @@ Puedes hablarme o escribir cualquier dato desestructurado:
               >
                 <div className="whitespace-pre-wrap font-medium">{msg.content}</div>
 
+                {msg.pendingAction&&<button onClick={()=>{if(applied.current.has(msg.id))return;try{const summary=executeServerAction(msg.pendingAction);applied.current.add(msg.id);setMessages(previous=>previous.map(message=>message.id===msg.id?{...message,pendingAction:undefined,actionSummary:summary}:message));}catch(error){setMessages(previous=>previous.map(message=>message.id===msg.id?{...message,content:error instanceof Error?error.message:'No se pudo aplicar.'}:message));}}} className="mt-3 min-h-11 px-3 rounded-xl bg-orange-600 text-white font-bold">Aplicar propuesta</button>}
                 {/* If AI executed an action inside the app */}
                 {msg.actionSummary && (
                   <div className="mt-2.5 pt-2 border-t border-emerald-300 flex items-center gap-1.5 text-emerald-800 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg">
